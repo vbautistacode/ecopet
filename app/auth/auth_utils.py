@@ -1,9 +1,9 @@
 # app/auth/auth_utils.py
 """
-Authentication utilities (refactored).
+Authentication utilities (robust, with fallbacks).
 
-- Primary hasher: Argon2 (passlib).
-- Supports legacy bcrypt / bcrypt_sha256 verification and optional rehash-to-Argon2 on successful login.
+- Primary hasher: Argon2 (passlib) when available.
+- Fallback: werkzeug PBKDF2-SHA256 for development if passlib is missing.
 - Supports SQLite and PostgreSQL based on STREAMDASH_DB env var.
 - Exposes: get_connection, get_user_by_username, create_user, hash_password, verify_password, is_admin.
 """
@@ -11,15 +11,29 @@ Authentication utilities (refactored).
 import os
 from typing import Optional, Dict, Any
 
-from passlib.hash import argon2, bcrypt, bcrypt_sha256
+# Try to import passlib (preferred). If not available, use werkzeug as a dev fallback.
+_HAS_PASSLIB = False
+try:
+    from passlib.hash import argon2, bcrypt, bcrypt_sha256  # type: ignore
+    _HAS_PASSLIB = True
+except Exception:
+    _HAS_PASSLIB = False
+    try:
+        from werkzeug.security import generate_password_hash, check_password_hash  # type: ignore
+    except Exception:
+        # If neither passlib nor werkzeug are available, raise a clear error at import time.
+        raise RuntimeError("Nenhum backend de hash disponível. Instale 'passlib' (recomendado) ou 'werkzeug'.")
 
 DB_TYPE = os.getenv("STREAMDASH_DB", "sqlite").lower()  # "sqlite" or "postgres"
 
 if DB_TYPE == "postgres":
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
+    try:
+        import psycopg2  # type: ignore
+        from psycopg2.extras import RealDictCursor  # type: ignore
+    except Exception as e:
+        raise RuntimeError("psycopg2 não encontrado. Instale com: pip install psycopg[binary]") from e
 elif DB_TYPE == "sqlite":
-    import sqlite3
+    import sqlite3  # type: ignore
 else:
     raise RuntimeError(f"Unsupported DB_TYPE: {DB_TYPE}")
 
@@ -30,10 +44,15 @@ else:
 def get_connection():
     """
     Return a DB connection object.
-    For Postgres: psycopg2 connection.
-    For SQLite: sqlite3 connection.
+    For Postgres: uses DATABASE_URL if present, otherwise PG* env vars.
+    For SQLite: sqlite3 connection to SQLITE_PATH (default streamdash.db).
     """
     if DB_TYPE == "postgres":
+        database_url = os.getenv("DATABASE_URL")
+        if database_url:
+            # psycopg2 accepts a DSN string
+            return psycopg2.connect(database_url)
+        # fallback to individual env vars
         return psycopg2.connect(
             dbname=os.getenv("DB_NAME", "streamdash"),
             user=os.getenv("DB_USER", "postgres"),
@@ -69,7 +88,7 @@ def get_user_by_username(conn, username: str) -> Optional[Dict[str, Any]]:
 
 def create_user(conn, name: str, username: str, password: str, role: str = "viewer") -> None:
     """
-    Create a new user (hashes password with Argon2).
+    Create a new user (hashes password with Argon2 if available).
     """
     hashed = hash_password(password)
     if DB_TYPE == "postgres":
@@ -98,6 +117,7 @@ def hash_password(password: str) -> str:
     # fallback: PBKDF2-SHA256 via werkzeug (para desenvolvimento)
     return generate_password_hash(pw, method="pbkdf2:sha256", salt_length=16)
 
+
 def _is_argon2_hash(h: str) -> bool:
     return isinstance(h, str) and h.startswith("$argon2")
 
@@ -114,7 +134,10 @@ def _rehash_to_argon2(conn, user_id: int, plain: str) -> None:
     """
     Re-hash the plain password with Argon2 and update the DB.
     Non-fatal: swallow exceptions to avoid blocking login.
+    Only runs if passlib is available.
     """
+    if not _HAS_PASSLIB:
+        return
     try:
         new_hash = argon2.hash(plain)
         if DB_TYPE == "postgres":
@@ -126,6 +149,7 @@ def _rehash_to_argon2(conn, user_id: int, plain: str) -> None:
             cur.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user_id))
             conn.commit()
     except Exception:
+        # swallow to avoid blocking login flow
         pass
 
 
@@ -133,6 +157,13 @@ def _rehash_to_argon2(conn, user_id: int, plain: str) -> None:
 # Verification
 # -------------------------
 def verify_password(plain: str, hashed: str, conn=None, user_id: Optional[int] = None) -> bool:
+    """
+    Verify a plaintext password against a stored hash.
+    - Supports Argon2 (preferred), bcrypt, bcrypt_sha256 when passlib is available.
+    - If an old hash (bcrypt / bcrypt_sha256) is verified and conn+user_id are provided,
+      re-hashes the password to Argon2 and updates the DB (only if passlib is available).
+    Returns True if password matches, False otherwise.
+    """
     if not isinstance(plain, str) or not isinstance(hashed, str):
         return False
     try:
@@ -150,6 +181,7 @@ def verify_password(plain: str, hashed: str, conn=None, user_id: Optional[int] =
                 if ok and conn is not None and user_id is not None:
                     _rehash_to_argon2(conn, user_id, plain)
                 return ok
+            # fallback: try argon2 verify
             try:
                 return argon2.verify(plain, hashed)
             except Exception:
@@ -159,6 +191,7 @@ def verify_password(plain: str, hashed: str, conn=None, user_id: Optional[int] =
             return check_password_hash(hashed, plain)
     except Exception:
         return False
+
 
 # -------------------------
 # Utilities
