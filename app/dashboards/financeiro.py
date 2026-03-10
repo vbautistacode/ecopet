@@ -27,7 +27,7 @@ def _safe_sum(df: Optional[pd.DataFrame], cols):
     return 0.0
 
 def show_finance(df: Optional[pd.DataFrame], modo: str = "Resumido"):
-    st.subheader("💰 KPIs Financeiros")
+    st.subheader("💰 Fluxo de Caixa")
 
     if df is None:
         df = pd.DataFrame()
@@ -55,18 +55,18 @@ def show_finance(df: Optional[pd.DataFrame], modo: str = "Resumido"):
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         explain_kpi(
-            title="Entradas",
+            title="Recebimentos",
             value=format_brl(entradas) if entradas is not None else "—",
             percent=entr_pct_total,
-            base_label="Entradas + Saídas",
+            base_label="Recebimentos + Pagamentos",
             help_text="Somatório de recebimentos no período."
         )
     with c2:
         explain_kpi(
-            title="Saídas",
+            title="Pagamentos",
             value=format_brl(saidas) if saidas is not None else "—",
             percent=said_pct_total,
-            base_label="Entradas + Saídas",
+            base_label="Recebimentos + Pagamentos",
             help_text="Somatório de pagamentos no período."
         )
     with c3:
