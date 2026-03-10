@@ -13,4 +13,6 @@ plotly
 altair
 matplotlib
 openpyxl
-xlrd
+xlrdpasslib
+argon2-cffi
+bcrypt
