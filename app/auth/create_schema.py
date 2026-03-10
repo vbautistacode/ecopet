@@ -1,24 +1,55 @@
 # app/auth/create_schema.py
-import sqlite3
+"""
+Create users table in Supabase/Postgres.
+
+Usage:
+  export STREAMDASH_DB=postgres
+  export DATABASE_URL="postgresql://user:pass@host:5432/dbname"
+  python app/auth/create_schema.py
+"""
+
+from db.connection import get_connection
+
 
 def create_users_table():
-    conn = sqlite3.connect("streamdash.db")
-    cur = conn.cursor()
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.users (
+                id BIGSERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin','viewer')),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            """
+        )
+        # optional: index on username for faster lookups (unique already creates index)
+        conn.commit()
+        print("Tabela 'public.users' criada/confirmada com sucesso.")
+    except Exception as e:
+        print("Erro ao criar tabela 'users':", e)
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn:
+            try:
+                cur.close()
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        role TEXT CHECK (role IN ('admin','viewer')) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    """)
-
-    conn.commit()
-    conn.close()
-    print("Tabela 'users' criada com sucesso.")
 
 if __name__ == "__main__":
     create_users_table()

@@ -1,14 +1,16 @@
 # apply_fallbacks_derived.py
-# KPIs e fallbacks (apply_fallbacks_derived.py)	Garantir Margem Líquida e CAGR calculados corretamente.
+# KPIs e fallbacks (apply_fallbacks_derived.py) — Garantir Margem Líquida e CAGR calculados corretamente.
 
 import math
-import sqlite3
-from pathlib import Path
 import pandas as pd
 import numpy as np
+from typing import Dict, Any
+
 from app.dashboards.utils_calc import calc_all_kpis
 
-DB = Path("streamdash.db")
+# Use DB connection helper (Postgres / Supabase)
+from db.connection import get_connection
+
 
 def safe_div(a, b):
     try:
@@ -22,29 +24,42 @@ def safe_div(a, b):
         pass
     return np.nan
 
-def apply_fallbacks(derived):
+
+def apply_fallbacks(derived: pd.DataFrame) -> pd.DataFrame:
     # copia para não alterar original por referência
     df = derived.copy()
 
     # garantir colunas existam
-    for c in ["valor_mercado", "valor_firma", "patrimonio_liquido", "ebitda",
-              "lucro_liquido", "numero_papeis", "free_float", "cagr_receitas",
-              "vendas", "vendedores", "producao", "quantidade", "custo_total",
-              "receita", "investimento", "leads_gerados", "clientes_ativos"]:
+    for c in [
+        "valor_mercado",
+        "valor_firma",
+        "patrimonio_liquido",
+        "ebitda",
+        "lucro_liquido",
+        "numero_papeis",
+        "free_float",
+        "cagr_receitas",
+        "vendas",
+        "vendedores",
+        "producao",
+        "quantidade",
+        "custo_total",
+        "receita",
+        "investimento",
+        "leads_gerados",
+        "clientes_ativos",
+    ]:
         if c not in df.columns:
             df[c] = np.nan
 
     # fallback p_vp: prefer P / VPA (valor_mercado / patrimonio_liquido) se numero_papeis/price não disponíveis
     def compute_p_vp(row):
-        # try existing p_vp
         if pd.notna(row.get("p_vp")):
             return row.get("p_vp")
-        # if valor_mercado and patrimonio_liquido available
         vm = row.get("valor_mercado")
         patr = row.get("patrimonio_liquido")
         if pd.notna(vm) and pd.notna(patr) and patr != 0:
             return safe_div(vm, patr)
-        # if number of shares and price per share exist (price col optional)
         price = row.get("preco_acao") if "preco_acao" in row.index else None
         npap = row.get("numero_papeis")
         if pd.notna(price) and pd.notna(npap) and npap != 0:
@@ -113,15 +128,12 @@ def apply_fallbacks(derived):
     def compute_taxa_retencao(row, next_row=None):
         if pd.notna(row.get("taxa_retencao")):
             return row.get("taxa_retencao")
-        # proxy: if next_row provided compute retention as current_clients / previous_clients (handled outside)
         return np.nan
 
     def compute_nps(row):
-        # no proxy possible without survey data
         return row.get("nps") if pd.notna(row.get("nps")) else np.nan
 
     # apply per-row
-    # for taxa_retencao we need time-order; so we'll compute it per group (tenant)
     df["p_vp"] = df.apply(compute_p_vp, axis=1)
     df["pl"] = df.apply(compute_pl, axis=1)
     df["ev_ebitda"] = df.apply(compute_ev_ebitda, axis=1)
@@ -133,47 +145,78 @@ def apply_fallbacks(derived):
 
     # taxa_retencao proxy: compute month-over-month retention per tenant from clientes_ativos
     if "clientes_ativos" in df.columns:
-        df = df.sort_values(["tenant_id", "mes"])
-        df["taxa_retencao"] = np.nan
-        for tenant, g in df.groupby("tenant_id"):
-            g = g.sort_values("mes")
-            prev = None
-            for idx, row in g.iterrows():
-                cur_clients = row.get("clientes_ativos")
-                if prev is not None and pd.notna(prev) and pd.notna(cur_clients):
-                    # retention = current / previous if previous > 0
-                    if prev != 0:
-                        df.at[idx, "taxa_retencao"] = safe_div(cur_clients, prev)
-                    else:
-                        df.at[idx, "taxa_retencao"] = np.nan
-                prev = cur_clients
+        # ensure we have tenant_id and mes for ordering; if not, skip retention proxy
+        if "tenant_id" in df.columns and "mes" in df.columns:
+            df = df.sort_values(["tenant_id", "mes"])
+            df["taxa_retencao"] = np.nan
+            for tenant, g in df.groupby("tenant_id"):
+                g = g.sort_values("mes")
+                prev = None
+                for idx, row in g.iterrows():
+                    cur_clients = row.get("clientes_ativos")
+                    if prev is not None and pd.notna(prev) and pd.notna(cur_clients):
+                        if prev != 0:
+                            df.at[idx, "taxa_retencao"] = safe_div(cur_clients, prev)
+                        else:
+                            df.at[idx, "taxa_retencao"] = np.nan
+                    prev = cur_clients
+        else:
+            # If tenant_id/mes missing, leave taxa_retencao as NaN
+            df["taxa_retencao"] = np.nan
 
     # ensure numeric types where appropriate
-    for col in ["p_vp", "ev_ebitda", "pl", "peg_ratio", "produtividade", "custo_unidade", "taxa_engajamento", "taxa_retencao", "nps"]:
+    for col in [
+        "p_vp",
+        "ev_ebitda",
+        "pl",
+        "peg_ratio",
+        "produtividade",
+        "custo_unidade",
+        "taxa_engajamento",
+        "taxa_retencao",
+        "nps",
+    ]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
 
+
 def main():
-    # carregar DFs a partir do DB como o app faria
-    conn = sqlite3.connect(str(DB))
+    # carregar DFs a partir do DB (Postgres / Supabase)
+    conn = None
+    try:
+        conn = get_connection()
+    except Exception as e:
+        print("Erro ao obter conexão com o banco:", e)
+        return
+
     tables = {
-      "dre": "dre_financeiro",
-      "contabeis": "dados_contabeis",
-      "vendas": "indicadores_vendas",
-      "finance": "indicadores_financeiros",
-      "marketing": "indicadores_marketing",
-      "operacional": "indicadores_operacionais",
-      "clientes": "indicadores_clientes"
+        "dre": "dre_financeiro",
+        "contabeis": "dados_contabeis",
+        "vendas": "indicadores_vendas",
+        "finance": "indicadores_financeiros",
+        "marketing": "indicadores_marketing",
+        "operacional": "indicadores_operacionais",
+        "clientes": "indicadores_clientes",
     }
-    dfs = {}
+
+    dfs: Dict[str, pd.DataFrame] = {}
     for k, t in tables.items():
         try:
-            dfs[k] = pd.read_sql_query(f"SELECT * FROM {t}", conn)
-        except Exception:
+            # leitura direta da tabela; se a tabela não existir, pandas lançará exceção
+            dfs[k] = pd.read_sql(f"SELECT * FROM {t}", conn)
+            print(f"Loaded table {t}: {len(dfs[k])} rows")
+        except Exception as exc:
+            # log do erro para diagnóstico (não suprimir silenciosamente)
+            print(f"Warning: failed to read table {t}: {exc}")
             dfs[k] = pd.DataFrame()
-    conn.close()
+
+    # fechar conexão se for um objeto DB-API
+    try:
+        conn.close()
+    except Exception:
+        pass
 
     res = calc_all_kpis(dfs)
     derived = res.get("derived") if isinstance(res, dict) else None
@@ -183,10 +226,11 @@ def main():
 
     derived_fixed = apply_fallbacks(derived)
     pd.set_option("display.max_columns", None)
-    print("\\n=== derived head (fixed) ===")
+    print("\n=== derived head (fixed) ===")
     print(derived_fixed.head(10).to_string(index=False))
-    print("\\n=== derived null counts (fixed) ===")
+    print("\n=== derived null counts (fixed) ===")
     print(derived_fixed.isna().sum().to_string())
+
 
 if __name__ == "__main__":
     main()
