@@ -140,14 +140,55 @@ if uploaded_files:
 def fetch_all_tables() -> Dict[str, pd.DataFrame]:
     conn = get_connection()
     try:
-        # Read full tables (no tenant filter). Qualify schema for Postgres.
-        finance = pd.read_sql("SELECT * FROM public.indicadores_financeiros", conn)
-        dre = pd.read_sql("SELECT * FROM public.dre_financeiro", conn)
-        vendas = pd.read_sql("SELECT * FROM public.indicadores_vendas", conn)
-        oper = pd.read_sql("SELECT * FROM public.indicadores_operacionais", conn)
-        mkt = pd.read_sql("SELECT * FROM public.indicadores_marketing", conn)
-        clientes = pd.read_sql("SELECT * FROM public.indicadores_clientes", conn)
-        cont = pd.read_sql("SELECT * FROM public.dados_contabeis", conn)
+        def _is_dbapi(c):
+            return hasattr(c, "cursor")
+
+        def _table_exists(c, table_name: str) -> bool:
+            # verifica information_schema para saber se a tabela existe no schema public
+            try:
+                if _is_dbapi(c):
+                    cur = c.cursor()
+                    cur.execute(
+                        "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = %s",
+                        (table_name,)
+                    )
+                    exists = cur.fetchone() is not None
+                    try:
+                        cur.close()
+                    except Exception:
+                        pass
+                    return exists
+                else:
+                    # engine path: usar read_sql para checar
+                    q = "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = %s"
+                    df = pd.read_sql(q, c, params=(table_name,))
+                    return not df.empty
+            except Exception:
+                return False
+
+        def _safe_read(table_name: str) -> pd.DataFrame:
+            # retorna DataFrame vazio se a tabela não existir ou leitura falhar
+            if not _table_exists(conn, table_name):
+                st.warning(f"Table public.{table_name} not found; returning empty DataFrame.")
+                return pd.DataFrame()
+            try:
+                # preferir read_sql_table quando conn for engine
+                try:
+                    return pd.read_sql_table(table_name, conn, schema="public")
+                except Exception:
+                    # fallback para SELECT qualificado (funciona com DB-API e engines)
+                    return pd.read_sql(f"SELECT * FROM public.{table_name}", conn)
+            except Exception as e:
+                st.warning(f"Failed to read public.{table_name}: {e}")
+                return pd.DataFrame()
+
+        finance = _safe_read("indicadores_financeiros")
+        dre = _safe_read("dre_financeiro")
+        vendas = _safe_read("indicadores_vendas")
+        oper = _safe_read("indicadores_operacionais")
+        mkt = _safe_read("indicadores_marketing")
+        clientes = _safe_read("indicadores_clientes")
+        cont = _safe_read("dados_contabeis")
 
         return {
             "financeiros": finance,
@@ -159,17 +200,8 @@ def fetch_all_tables() -> Dict[str, pd.DataFrame]:
             "contabeis": cont
         }
     except Exception as e:
-        # Surface error in Streamlit UI and return empty frames to keep app running
         st.error(f"Erro ao buscar dados do banco: {e}")
-        return {
-            "financeiros": pd.DataFrame(),
-            "dre": pd.DataFrame(),
-            "vendas": pd.DataFrame(),
-            "operacionais": pd.DataFrame(),
-            "marketing": pd.DataFrame(),
-            "clientes": pd.DataFrame(),
-            "contabeis": pd.DataFrame()
-        }
+        return {k: pd.DataFrame() for k in ["financeiros","dre","vendas","operacionais","marketing","clientes","contabeis"]}
     finally:
         try:
             conn.close()
