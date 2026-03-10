@@ -10,7 +10,7 @@ import streamlit as st
 # Configuração da aplicação
 # -----------------------------
 st.set_page_config(page_title="Streamdash BI", layout="wide")
-st.title("📊 Streamdash — BI")
+st.title("📊 EcoPet - BI")
 
 from app.auth.login import show_login
 from app.auth.manage_users import show_manage_users
