@@ -92,12 +92,11 @@ def create_user(conn, name: str, username: str, password: str, role: str = "view
 # Hashing helpers
 # -------------------------
 def hash_password(password: str) -> str:
-    """
-    Hash a plaintext password using Argon2.
-    """
     pw = "" if password is None else str(password).strip()
-    return argon2.hash(pw)
-
+    if _HAS_PASSLIB:
+        return argon2.hash(pw)
+    # fallback: PBKDF2-SHA256 via werkzeug (para desenvolvimento)
+    return generate_password_hash(pw, method="pbkdf2:sha256", salt_length=16)
 
 def _is_argon2_hash(h: str) -> bool:
     return isinstance(h, str) and h.startswith("$argon2")
@@ -134,40 +133,32 @@ def _rehash_to_argon2(conn, user_id: int, plain: str) -> None:
 # Verification
 # -------------------------
 def verify_password(plain: str, hashed: str, conn=None, user_id: Optional[int] = None) -> bool:
-    """
-    Verify a plaintext password against a stored hash.
-    - Supports Argon2 (preferred), bcrypt, bcrypt_sha256.
-    - If an old hash (bcrypt / bcrypt_sha256) is verified and conn+user_id are provided,
-      re-hashes the password to Argon2 and updates the DB.
-    Returns True if password matches, False otherwise.
-    """
     if not isinstance(plain, str) or not isinstance(hashed, str):
         return False
-
     try:
-        if _is_argon2_hash(hashed):
-            return argon2.verify(plain, hashed)
-
-        if _is_bcrypt_sha256_hash(hashed):
-            ok = bcrypt_sha256.verify(plain, hashed)
-            if ok and conn is not None and user_id is not None:
-                _rehash_to_argon2(conn, user_id, plain)
-            return ok
-
-        if _is_bcrypt_hash(hashed):
-            ok = bcrypt.verify(plain, hashed)
-            if ok and conn is not None and user_id is not None:
-                _rehash_to_argon2(conn, user_id, plain)
-            return ok
-
-        try:
-            return argon2.verify(plain, hashed)
-        except Exception:
-            return False
-
+        if _HAS_PASSLIB:
+            # comportamento original: suporta argon2, bcrypt_sha256, bcrypt
+            if _is_argon2_hash(hashed):
+                return argon2.verify(plain, hashed)
+            if _is_bcrypt_sha256_hash(hashed):
+                ok = bcrypt_sha256.verify(plain, hashed)
+                if ok and conn is not None and user_id is not None:
+                    _rehash_to_argon2(conn, user_id, plain)
+                return ok
+            if _is_bcrypt_hash(hashed):
+                ok = bcrypt.verify(plain, hashed)
+                if ok and conn is not None and user_id is not None:
+                    _rehash_to_argon2(conn, user_id, plain)
+                return ok
+            try:
+                return argon2.verify(plain, hashed)
+            except Exception:
+                return False
+        else:
+            # fallback: werkzeug check (only for dev)
+            return check_password_hash(hashed, plain)
     except Exception:
         return False
-
 
 # -------------------------
 # Utilities
