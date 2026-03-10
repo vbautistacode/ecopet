@@ -1,20 +1,47 @@
 # db/connection.py
-# Conexão segura com Supabase (db/connection.py, .env.example)	Base de dados central; necessário para persistência e testes.
+"""
+DB connection helper for Supabase Postgres.
+
+- Assumes STREAMDASH_DB=postgres and DATABASE_URL is set.
+- Returns a psycopg2 connection (DB-API).
+- Raises clear errors if psycopg2 is missing or DATABASE_URL is not provided.
+"""
 
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
-from sqlalchemy.pool import NullPool
+from typing import Any
 
-# Use DATABASE_URL no formato:
-# postgresql://user:password@host:5432/dbname
-DATABASE_URL = os.getenv("postgresql://postgres:CGUh0NTdOuv9spKp@db.jxamzozlonqsvmqmipym.supabase.co:5432/postgres")
+DB_TYPE = os.getenv("STREAMDASH_DB", "postgres").lower()
 
-def get_engine() -> Engine:
+if DB_TYPE != "postgres":
+    raise RuntimeError("This application is configured to use Postgres. Set STREAMDASH_DB=postgres.")
+
+try:
+    import psycopg2  # type: ignore
+    from psycopg2.extras import RealDictCursor  # type: ignore
+except Exception as e:
+    raise RuntimeError("psycopg2 is required for Postgres. Install with: pip install psycopg[binary]") from e
+
+
+def get_connection() -> Any:
     """
-    Retorna um SQLAlchemy Engine configurado para o DATABASE_URL.
-    Usa NullPool para evitar conexões persistentes em ambientes serverless.
+    Return a psycopg2 connection using DATABASE_URL or individual PG* env vars.
+
+    Usage:
+      export STREAMDASH_DB=postgres
+      export DATABASE_URL="postgresql://user:pass@host:5432/dbname"
+
+    Returns:
+      psycopg2 connection object
     """
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL não configurado. Defina a variável de ambiente.")
-    return create_engine(DATABASE_URL, poolclass=NullPool, future=True)
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return psycopg2.connect(database_url)
+
+    # Fallback to individual env vars if DATABASE_URL is not set
+    host = os.getenv("DB_HOST", "localhost")
+    port = os.getenv("DB_PORT", "5432")
+    user = os.getenv("DB_USER", "postgres")
+    password = os.getenv("DB_PASS", "")
+    dbname = os.getenv("DB_NAME", "postgres")
+
+    return psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname)
