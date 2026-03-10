@@ -256,42 +256,6 @@ def show_dashboard(dfs: Dict[str, pd.DataFrame], tenant_id: Optional[str], perio
             st.info("Nenhum dado de clientes disponível.")
 
     # -----------------------------
-    # Dados Contábeis (resumo)
-    # -----------------------------
-    with tab_cont:
-        st.subheader("📘 Dados Contábeis")
-        patrimonio = _safe_first(df_cont, "patrimonio_liquido")
-        ativos = _safe_first(df_cont, "ativos")
-        ativo_circ = _safe_first(df_cont, "ativo_circulante")
-        disponibilidade = _safe_first(df_cont, "disponibilidade")
-        divida_bruta = _safe_first(df_cont, "divida_bruta")
-        divida_liquida = _safe_first(df_cont, "divida_liquida")
-        valor_mercado = _safe_first(df_cont, "valor_mercado")
-        valor_firma = _safe_first(df_cont, "valor_firma")
-        numero_papeis = _safe_first(df_cont, "numero_papeis")
-        free_float = _safe_first(df_cont, "free_float")
-        segmento = _safe_first(df_cont, "segmento_listagem")
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Patrimônio Líquido", format_brl(patrimonio) if patrimonio is not None else "—")
-        col2.metric("Ativos", format_brl(ativos) if ativos is not None else "—")
-        col3.metric("Ativo Circulante", format_brl(ativo_circ) if ativo_circ is not None else "—")
-
-        col4, col5, col6 = st.columns(3)
-        col4.metric("Disponibilidade", format_brl(disponibilidade) if disponibilidade is not None else "—")
-        col5.metric("Dívida Bruta", format_brl(divida_bruta) if divida_bruta is not None else "—")
-        col6.metric("Dívida Líquida", format_brl(divida_liquida) if divida_liquida is not None else "—")
-
-        col7, col8, col9 = st.columns(3)
-        col7.metric("Valor de Mercado", format_brl(valor_mercado) if valor_mercado is not None else "—")
-        col8.metric("Valor da Firma", format_brl(valor_firma) if valor_firma is not None else "—")
-        col9.metric("Nº Total de Papéis", f"{int(numero_papeis):,}" if numero_papeis not in (None, "", 0) else "—")
-
-        col10, col11 = st.columns(2)
-        col10.metric("Free Float", f"{free_float:.2%}" if isinstance(free_float, (float, int)) else "—")
-        col11.metric("Segmento de Listagem", segmento if segmento is not None else "—")
-
-    # -----------------------------
     # Indicadores Estratégicos
     # -----------------------------
     with tab_estrat:
