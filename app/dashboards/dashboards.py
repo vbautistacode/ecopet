@@ -88,11 +88,12 @@ def render_insights_section(ctx: Dict[str, Any]):
 # -----------------------------
 # Painel central (orquestra abas e delega)
 # -----------------------------
-def show_dashboard(dfs: Dict[str, pd.DataFrame], tenant_id: str, periodo: str, modo: str = "Resumido"):
+def show_dashboard(dfs: Dict[str, pd.DataFrame], tenant_id: Optional[str], periodo: str, modo: str = "Resumido"):
     """
     dfs: dict com keys:
       'financeiros','dre','vendas','operacionais','marketing','clientes','contabeis'
-    tenant_id, periodo: usados para filtrar os dataframes quando aplicável
+    tenant_id: opcional; se None ou não existir nas tabelas, nenhum filtro por tenant é aplicado
+    periodo: usado para filtrar os dataframes quando aplicável
     modo: "Resumido" | "Detalhado"
     """
 
@@ -153,15 +154,16 @@ def show_dashboard(dfs: Dict[str, pd.DataFrame], tenant_id: str, periodo: str, m
     df_clientes = _normalize_mes(df_clientes)
     df_cont = _normalize_mes(df_cont)
 
-    # filtrar por tenant quando aplicável
+    # filtrar por tenant quando aplicável (defensivo)
     try:
-        if isinstance(df_fin, pd.DataFrame) and "tenant_id" in df_fin.columns:
-            df_fin = df_fin[df_fin["tenant_id"] == tenant_id]
-        # também filtrar os outros DFs por tenant se tiverem tenant_id
-        for _df_name in ("df_dre", "df_vendas", "df_ops", "df_mkt", "df_clientes", "df_cont"):
-            _df = locals().get(_df_name)
-            if isinstance(_df, pd.DataFrame) and "tenant_id" in _df.columns:
-                locals()[_df_name] = _df[_df["tenant_id"] == tenant_id]
+        if tenant_id is not None:
+            if isinstance(df_fin, pd.DataFrame) and "tenant_id" in df_fin.columns:
+                df_fin = df_fin[df_fin["tenant_id"] == tenant_id]
+            # também filtrar os outros DFs por tenant se tiverem tenant_id
+            for _df_name in ("df_dre", "df_vendas", "df_ops", "df_mkt", "df_clientes", "df_cont"):
+                _df = locals().get(_df_name)
+                if isinstance(_df, pd.DataFrame) and "tenant_id" in _df.columns:
+                    locals()[_df_name] = _df[_df["tenant_id"] == tenant_id]
     except Exception:
         # não falhar a execução do dashboard por causa de filtro
         pass

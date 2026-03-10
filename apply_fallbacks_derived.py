@@ -204,12 +204,17 @@ def main():
     dfs: Dict[str, pd.DataFrame] = {}
     for k, t in tables.items():
         try:
-            # leitura direta da tabela; se a tabela não existir, pandas lançará exceção
-            dfs[k] = pd.read_sql(f"SELECT * FROM {t}", conn)
-            print(f"Loaded table {t}: {len(dfs[k])} rows")
+            # Preferir leitura qualificada por schema; se get_connection() retornar um SQLAlchemy engine,
+            # pd.read_sql_table é mais apropriado.
+            try:
+                # tenta usar read_sql_table (funciona com SQLAlchemy engine)
+                dfs[k] = pd.read_sql_table(t, conn, schema="public")
+            except Exception:
+                # fallback para read_sql com SELECT qualificado (funciona com conexões DB-API e engines)
+                dfs[k] = pd.read_sql(f"SELECT * FROM public.{t}", conn)
+            print(f"Loaded table public.{t}: {len(dfs[k])} rows")
         except Exception as exc:
-            # log do erro para diagnóstico (não suprimir silenciosamente)
-            print(f"Warning: failed to read table {t}: {exc}")
+            print(f"Warning: failed to read table public.{t}: {exc}")
             dfs[k] = pd.DataFrame()
 
     # fechar conexão se for um objeto DB-API

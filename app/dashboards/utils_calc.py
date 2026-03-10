@@ -2,11 +2,9 @@
 """
 Cálculos derivados e compat shim.
 
-Principais responsabilidades:
-- padronizar nomes de input (aceitar formas legadas)
-- calcular KPIs por tenant_id + mes quando possível
-- retornar um dict com 'derived' (DataFrame) e também um dicionário sumarizado quando pedido
-- fornecer calc_all_kpis(dfs) e compat calc_estrategicos_from_dre(dfs)
+Compatível com dataset sem tenant_id: quando tenant_id estiver ausente, os KPIs
+são calculados por 'mes' (uma linha por mês). Se 'tenant_id' existir, mantém
+o comportamento anterior (linhas por tenant+mes).
 """
 
 from typing import Dict, Any, Optional
@@ -14,9 +12,6 @@ import math
 import numpy as np
 import pandas as pd
 
-# -----------------------------
-# Utilitários internos
-# -----------------------------
 def _safe_div(num, den):
     try:
         if den is None or den == 0 or (isinstance(den, float) and math.isnan(den)):
@@ -39,9 +34,7 @@ def _mean_col(df: pd.DataFrame, col: str) -> Optional[float]:
     vals = _to_float_series(df[col]).dropna()
     return float(vals.mean()) if not vals.empty else None
 
-# Padronização de chaves/nomes de df no input
 def _get_dfs(dfs: Dict[str, Optional[pd.DataFrame]]) -> Dict[str, pd.DataFrame]:
-    # aceita várias keys legadas
     mapping = {
         "dre": ["dre", "dre_financeiro"],
         "finance": ["financeiros", "finance", "indicadores_financeiros"],
@@ -61,10 +54,7 @@ def _get_dfs(dfs: Dict[str, Optional[pd.DataFrame]]) -> Dict[str, pd.DataFrame]:
         res[key] = found.copy() if isinstance(found, pd.DataFrame) else pd.DataFrame()
     return res
 
-# -----------------------------
-# Cálculos auxiliares por grupo (tenant+mes)
-# -----------------------------
-def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) -> Dict[str, Any]:
+def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: Optional[str], mes: str) -> Dict[str, Any]:
     dre = group["dre"]
     finance = group["finance"]
     vendas = group["vendas"]
@@ -73,9 +63,11 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
     cli = group["clientes"]
     cont = group["contabeis"]
 
-    out: Dict[str, Any] = {"tenant_id": tenant, "mes": mes}
+    out: Dict[str, Any] = {}
+    if tenant is not None:
+        out["tenant_id"] = tenant
+    out["mes"] = mes
 
-    # --- Financeiros / DRE ---
     receita_bruta = _sum_col(dre, "receita_bruta")
     deducoes = _sum_col(dre, "deducoes")
     receita_liquida = receita_bruta - deducoes if not (math.isnan(receita_bruta) or math.isnan(deducoes)) else np.nan
@@ -103,7 +95,6 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
     out["margem_operacional"] = _safe_div(lucro_operacional, receita_liquida) if not math.isnan(receita_liquida) else np.nan
     out["margem_liquida"] = _safe_div(lucro_liquido, receita_liquida) if not math.isnan(receita_liquida) else np.nan
 
-    # --- Contábeis (último disponível dentro do mesmo mes se houver) ---
     patrimonio = None
     divida_liq = None
     divida_bruta = None
@@ -111,15 +102,17 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
     valor_firma = None
     numero_papeis = None
     free_float = None
+    last = None
     if not cont.empty:
-        # preferir registros exatamente do mes; senão último do tenant
-        cont_tenant_mes = cont[(cont.get("tenant_id") == tenant) & (cont.get("mes") == mes)]
-        if not cont_tenant_mes.empty:
-            last = cont_tenant_mes.iloc[-1]
+        # preferir registros do mesmo mes; se não houver, usar último disponível
+        if "mes" in cont.columns:
+            cont_mes = cont[cont.get("mes").astype(str) == str(mes)]
+            if not cont_mes.empty:
+                last = cont_mes.iloc[-1]
+            else:
+                last = cont.sort_values("mes").iloc[-1] if "mes" in cont.columns and not cont.empty else cont.iloc[-1]
         else:
-            # último por tenant
-            cont_tenant = cont[cont.get("tenant_id") == tenant] if "tenant_id" in cont.columns else cont
-            last = cont_tenant.sort_values("mes").iloc[-1] if not cont_tenant.empty and "mes" in cont_tenant.columns else cont_tenant.iloc[-1] if not cont_tenant.empty else None
+            last = cont.iloc[-1] if not cont.empty else None
         if last is not None:
             patrimonio = last.get("patrimonio_liquido") if "patrimonio_liquido" in last.index else None
             divida_liq = last.get("divida_liquida") if "divida_liquida" in last.index else None
@@ -129,34 +122,25 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
             numero_papeis = last.get("numero_papeis") if "numero_papeis" in last.index else None
             free_float = last.get("free_float") if "free_float" in last.index else None
 
-    # dívidas / ebitda
     debt_for_calc = divida_liq if divida_liq not in (None, np.nan) else divida_bruta
     out["divida_ebitda"] = _safe_div(debt_for_calc, ebitda) if not (isinstance(ebitda, float) and math.isnan(ebitda)) else np.nan
 
-    # ROE / P/VPA / EV/EBITDA / P/L
     out["roe"] = _safe_div(lucro_liquido, patrimonio)
     out["p_vp"] = _safe_div(valor_mercado, patrimonio)
     out["ev_ebitda"] = _safe_div(valor_firma, ebitda)
     out["pl"] = _safe_div(valor_mercado, lucro_liquido)
 
-    # cagr de receitas: se dre tem mais de 1 mês, tentar localmente (mas o LTM ideal fica para etapa seguinte)
-    out["cagr_receitas"] = np.nan  # preenchido em calc_all_kpis agrupado
-
-    # PEG (placeholder)
+    out["cagr_receitas"] = np.nan
     out["peg_ratio"] = np.nan
 
-    # ROI (financeiro simples)
     entradas_sum = _sum_col(finance, "entradas")
     saidas_sum = _sum_col(finance, "saidas")
     out["roi"] = _safe_div((entradas_sum - saidas_sum), saidas_sum) if saidas_sum else np.nan
 
-    # --- Vendas: ticket, taxa de conversao, churn, ltv ---
-    # ticket medio: preferir coluna; fallback receita / volume_vendas (agregado)
     ticket_col_mean = _mean_col(vendas, "ticket_medio")
     if ticket_col_mean is not None:
         ticket_medio = ticket_col_mean
     else:
-        # receita possível em marketing ou financeiro
         receita_from_mkt = _sum_col(mkt, "receita") if "receita" in mkt.columns else 0.0
         receita_from_fin = entradas_sum
         total_revenue = receita_from_mkt + receita_from_fin
@@ -164,23 +148,19 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
         ticket_medio = _safe_div(total_revenue, volume) if volume else np.nan
     out["ticket_medio"] = float(ticket_medio) if not (isinstance(ticket_medio, float) and math.isnan(ticket_medio)) else np.nan
 
-    # taxa_conversao: preferir coluna; fallback conv_total = clientes / visitas or clientes/ leads
     taxa_conv = _mean_col(vendas, "taxa_conversao")
     if taxa_conv is None:
         visitas = _sum_col(mkt, "visitas") if "visitas" in mkt.columns else 0.0
         leads = _sum_col(mkt, "leads_gerados") if "leads_gerados" in mkt.columns else _sum_col(vendas, "leads_gerados")
         clientes_count = _sum_col(cli, "clientes_ativos") if "clientes_ativos" in cli.columns else _sum_col(vendas, "clientes_ativos")
-        # conversao visitantes->clientes
         conv_vis_leads = _safe_div(leads, visitas) if visitas else np.nan
         conv_leads_cli = _safe_div(clientes_count, leads) if leads else np.nan
         conv_total = _safe_div(clientes_count, visitas) if visitas else np.nan
         taxa_conv = conv_total if not math.isnan(conv_total) else (conv_leads_cli if not math.isnan(conv_leads_cli) else np.nan)
     out["taxa_conversao"] = float(taxa_conv) if not (isinstance(taxa_conv, float) and math.isnan(taxa_conv)) else np.nan
 
-    # churn_rate: prefer cli table; se for série, calcular usando first/last
     churn_val = _mean_col(cli, "churn_rate")
     if churn_val is None:
-        # tentativa por série (clientes ativos ao longo do mes)
         if not cli.empty and "clientes_ativos" in cli.columns and "mes" in cli.columns:
             try:
                 cli_sorted = cli.sort_values("mes")
@@ -194,7 +174,6 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
             churn_val = _mean_col(vendas, "churn_rate")
     out["churn_rate"] = float(churn_val) if not (isinstance(churn_val, float) and math.isnan(churn_val)) else np.nan
 
-    # LTV: prefer coluna; fallback receita_total / clientes
     ltv_val = _mean_col(vendas, "ltv")
     if ltv_val is None:
         receita_total_vendas = _sum_col(vendas, "receita") if "receita" in vendas.columns else 0.0
@@ -203,11 +182,9 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
         ltv_val = ltv_calc
     out["ltv"] = float(ltv_val) if not (isinstance(ltv_val, float) and math.isnan(ltv_val)) else np.nan
 
-    # --- Operacionais ---
     out["produtividade"] = float(_mean_col(oper, "produtividade") or _mean_col(oper, "producao") or np.nan)
     out["custo_unidade"] = float(_mean_col(oper, "custo_unidade") or np.nan)
 
-    # --- Marketing ---
     cac_val = _mean_col(mkt, "cac")
     if cac_val is None:
         investimento = _sum_col(mkt, "investimento")
@@ -220,11 +197,9 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
     leads_sum = _sum_col(mkt, "leads_gerados")
     out["custo_por_lead"] = float(_safe_div(investimento_sum, leads_sum) if leads_sum else np.nan)
 
-    # --- Clientes ---
     out["taxa_retencao"] = float(_mean_col(cli, "taxa_retencao") or np.nan)
     out["nps"] = float(_mean_col(cli, "nps") or np.nan)
 
-    # --- Mercado / contábeis expostos ---
     out["valor_mercado"] = float(valor_mercado) if valor_mercado not in (None, np.nan) else np.nan
     out["valor_firma"] = float(valor_firma) if valor_firma not in (None, np.nan) else np.nan
     try:
@@ -233,7 +208,6 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
         out["numero_papeis"] = np.nan
     out["free_float"] = float(free_float) if free_float not in (None, "", np.nan) else np.nan
 
-    # liquidez corrente (simplificação defensiva)
     liq = np.nan
     try:
         if last is not None and "ativo_circulante" in last.index and "divida_bruta" in last.index:
@@ -244,17 +218,8 @@ def _compute_for_group(group: Dict[str, pd.DataFrame], tenant: str, mes: str) ->
 
     return out
 
-# -----------------------------
-# Função principal: calcula derived DataFrame e sumariza
-# -----------------------------
+
 def calc_all_kpis(dfs: Dict[str, Optional[pd.DataFrame]]) -> Dict[str, Any]:
-    """
-    Recebe dict de DataFrames (pode conter chaves legadas).
-    Retorna dict com:
-      - 'derived': dataframe com linhas por tenant_id + mes e colunas de indicadores
-      - outras chaves opcionais (agregados globais)
-    """
-    # padroniza dicionário de dataframes
     standardized = _get_dfs(dfs)
     dre = standardized["dre"]
     finance = standardized["finance"]
@@ -264,80 +229,92 @@ def calc_all_kpis(dfs: Dict[str, Optional[pd.DataFrame]]) -> Dict[str, Any]:
     cli = standardized["clientes"]
     cont = standardized["contabeis"]
 
-    # identificar pares tenant+mes existentes nas fontes (união)
-    tenants = set()
-    pairs = set()
-    for df in (dre, finance, vendas, oper, mkt, cli, cont):
-        if df is None or df.empty:
-            continue
-        if "tenant_id" in df.columns and "mes" in df.columns:
-            for t, m in zip(df["tenant_id"].astype(str), df["mes"].astype(str)):
-                pairs.add((t, m))
-                tenants.add(t)
+    # Determine grouping: if tenant_id exists in any source, compute per tenant+mes; otherwise per mes
+    has_tenant = any(("tenant_id" in df.columns) for df in (dre, finance, vendas, oper, mkt, cli, cont) if df is not None and not df.empty)
 
-    # se nenhum par, tentar agrupar por tenant apenas (último mes)
-    if not pairs:
-        # fallback: pegar últimos meses por cont ou finance
-        fallback_df = cont if not cont.empty else finance if not finance.empty else pd.DataFrame()
-        if not fallback_df.empty and "tenant_id" in fallback_df.columns:
-            for t in fallback_df["tenant_id"].unique():
-                # determine mes
-                sub = fallback_df[fallback_df["tenant_id"] == t]
-                mes = sub["mes"].astype(str).max() if "mes" in sub.columns else ""
-                pairs.add((t, mes))
+    pairs = set()
+    if has_tenant:
+        for df in (dre, finance, vendas, oper, mkt, cli, cont):
+            if df is None or df.empty:
+                continue
+            if "tenant_id" in df.columns and "mes" in df.columns:
+                for t, m in zip(df["tenant_id"].astype(str), df["mes"].astype(str)):
+                    pairs.add((t, m))
+    else:
+        # group by mes only (union of months across sources)
+        months = set()
+        for df in (dre, finance, vendas, oper, mkt, cli, cont):
+            if df is None or df.empty:
+                continue
+            if "mes" in df.columns:
+                months.update(df["mes"].astype(str).unique().tolist())
+        for m in months:
+            pairs.add((None, m))
 
     rows = []
-    # para cálculo de CAGR global por tenant, agrupamos dre por tenant+mes (se possível)
-    dre_grouped = dre.copy() if not dre.empty else pd.DataFrame()
-    if not dre_grouped.empty:
-        dre_grouped["mes"] = dre_grouped["mes"].astype(str)
-    # iterar pares e calcular
     for tenant, mes in pairs:
-        # construir subframes por tenant+mes para cálculo local
-        sub = {
-            "dre": dre[(dre.get("tenant_id").astype(str) == str(tenant)) & (dre.get("mes").astype(str) == str(mes))] if not dre.empty and "tenant_id" in dre.columns and "mes" in dre.columns else (dre[dre.get("tenant_id").astype(str) == str(tenant)] if not dre.empty and "tenant_id" in dre.columns else pd.DataFrame()),
-            "finance": finance[(finance.get("tenant_id").astype(str) == str(tenant)) & (finance.get("mes").astype(str) == str(mes))] if not finance.empty and "tenant_id" in finance.columns and "mes" in finance.columns else (finance[finance.get("tenant_id").astype(str) == str(tenant)] if not finance.empty and "tenant_id" in finance.columns else pd.DataFrame()),
-            "vendas": vendas[(vendas.get("tenant_id").astype(str) == str(tenant)) & (vendas.get("mes").astype(str) == str(mes))] if not vendas.empty and "tenant_id" in vendas.columns and "mes" in vendas.columns else (vendas[vendas.get("tenant_id").astype(str) == str(tenant)] if not vendas.empty and "tenant_id" in vendas.columns else pd.DataFrame()),
-            "operacional": oper[(oper.get("tenant_id").astype(str) == str(tenant)) & (oper.get("mes").astype(str) == str(mes))] if not oper.empty and "tenant_id" in oper.columns and "mes" in oper.columns else (oper[oper.get("tenant_id").astype(str) == str(tenant)] if not oper.empty and "tenant_id" in oper.columns else pd.DataFrame()),
-            "marketing": mkt[(mkt.get("tenant_id").astype(str) == str(tenant)) & (mkt.get("mes").astype(str) == str(mes))] if not mkt.empty and "tenant_id" in mkt.columns and "mes" in mkt.columns else (mkt[mkt.get("tenant_id").astype(str) == str(tenant)] if not mkt.empty and "tenant_id" in mkt.columns else pd.DataFrame()),
-            "clientes": cli[(cli.get("tenant_id").astype(str) == str(tenant)) & (cli.get("mes").astype(str) == str(mes))] if not cli.empty and "tenant_id" in cli.columns and "mes" in cli.columns else (cli[cli.get("tenant_id").astype(str) == str(tenant)] if not cli.empty and "tenant_id" in cli.columns else pd.DataFrame()),
-            "contabeis": cont if not cont.empty else pd.DataFrame()
-        }
+        sub = {}
+        # build subframes: if tenant present, filter by tenant+mes; otherwise filter by mes only
+        for name, df in (("dre", dre), ("finance", finance), ("vendas", vendas), ("operacional", oper), ("marketing", mkt), ("clientes", cli), ("contabeis", cont)):
+            if df is None or df.empty:
+                sub[name] = pd.DataFrame()
+                continue
+            if tenant is not None and "tenant_id" in df.columns and "mes" in df.columns:
+                sub[name] = df[(df.get("tenant_id").astype(str) == str(tenant)) & (df.get("mes").astype(str) == str(mes))]
+            elif "mes" in df.columns:
+                sub[name] = df[df.get("mes").astype(str) == str(mes)]
+            else:
+                sub[name] = df.copy()
         row = _compute_for_group(sub, tenant, mes)
         rows.append(row)
 
     derived = pd.DataFrame(rows)
-    # calcular CAGR por tenant usando dre_grouped quando possível (LTM/years aprox)
+
+    # calcular CAGR por grupo (tenant or global mes series)
     cagr_map = {}
-    if not dre_grouped.empty:
-        for tenant in derived["tenant_id"].unique():
-            t_dre = dre_grouped[dre_grouped["tenant_id"].astype(str) == str(tenant)]
-            if t_dre.empty:
-                cagr_map[tenant] = np.nan
-                continue
-            monthly = t_dre.groupby("mes")["receita_bruta"].sum().sort_index()
+    if not dre.empty and "mes" in dre.columns:
+        if has_tenant:
+            tenants = derived["tenant_id"].unique() if "tenant_id" in derived.columns else []
+            for t in tenants:
+                t_dre = dre[dre.get("tenant_id").astype(str) == str(t)]
+                if t_dre.empty:
+                    cagr_map[t] = np.nan
+                    continue
+                monthly = t_dre.groupby("mes")["receita_bruta"].sum().sort_index()
+                if len(monthly) >= 2:
+                    first = monthly.iloc[0]
+                    last = monthly.iloc[-1]
+                    n_months = monthly.size
+                    years = n_months / 12.0
+                    try:
+                        cagr = (last / first) ** (1.0 / years) - 1.0 if first > 0 and years > 0 else np.nan
+                    except Exception:
+                        cagr = np.nan
+                else:
+                    cagr = np.nan
+                cagr_map[t] = cagr
+        else:
+            monthly = dre.groupby("mes")["receita_bruta"].sum().sort_index()
             if len(monthly) >= 2:
                 first = monthly.iloc[0]
                 last = monthly.iloc[-1]
                 n_months = monthly.size
                 years = n_months / 12.0
                 try:
-                    if first > 0 and years > 0:
-                        cagr = (last / first) ** (1.0 / years) - 1.0
-                    else:
-                        cagr = np.nan
+                    cagr = (last / first) ** (1.0 / years) - 1.0 if first > 0 and years > 0 else np.nan
                 except Exception:
                     cagr = np.nan
             else:
                 cagr = np.nan
-            cagr_map[tenant] = cagr
-    # aplicar cagr e peg_ratio
+            cagr_map[None] = cagr
+
     if not derived.empty:
-        derived["cagr_receitas"] = derived["tenant_id"].map(cagr_map).astype(float)
-        # peg_ratio = pl / cagr, defensivo
+        if has_tenant and "tenant_id" in derived.columns:
+            derived["cagr_receitas"] = derived["tenant_id"].map(cagr_map).astype(float)
+        else:
+            derived["cagr_receitas"] = derived["mes"].map(lambda m: cagr_map.get(None, np.nan)).astype(float)
         derived["peg_ratio"] = derived.apply(lambda r: _safe_div(r.get("pl"), r.get("cagr_receitas")) if not (r.get("cagr_receitas") in (None, np.nan)) else np.nan, axis=1)
 
-    # garantir colunas esperadas e tipos coerentes
     expected = [
         "tenant_id", "mes", "ebitda", "lucro_liquido", "margem_bruta", "margem_operacional", "margem_liquida",
         "divida_ebitda", "roe", "p_vp", "ev_ebitda", "pl", "cagr_receitas", "peg_ratio", "roi",
@@ -349,53 +326,46 @@ def calc_all_kpis(dfs: Dict[str, Optional[pd.DataFrame]]) -> Dict[str, Any]:
         if col not in derived.columns:
             derived[col] = np.nan
 
-    # converter numeric coerente
     for col in derived.columns:
         if col not in ("tenant_id", "mes"):
             derived[col] = pd.to_numeric(derived[col], errors="coerce")
 
-    # montar retorno: derived df + sumarização opcional
     out: Dict[str, Any] = {"derived": derived}
 
-    # sumarizar por tenant último registro (útil quando chamada por legacy)
     try:
         summary = {}
-        for tenant in derived["tenant_id"].unique():
-            last_row = derived[derived["tenant_id"] == tenant].sort_values("mes").iloc[-1]
-            summary[tenant] = {k: (None if pd.isna(last_row.get(k)) else last_row.get(k)) for k in expected if k not in ("tenant_id", "mes")}
+        if "tenant_id" in derived.columns and derived["tenant_id"].notna().any():
+            for tenant in derived["tenant_id"].unique():
+                last_row = derived[derived["tenant_id"] == tenant].sort_values("mes").iloc[-1]
+                summary[tenant] = {k: (None if pd.isna(last_row.get(k)) else last_row.get(k)) for k in expected if k not in ("tenant_id", "mes")}
+        else:
+            # summary global: last mes
+            if not derived.empty:
+                last_row = derived.sort_values("mes").iloc[-1]
+                summary["global"] = {k: (None if pd.isna(last_row.get(k)) else last_row.get(k)) for k in expected if k not in ("tenant_id", "mes")}
         out["summary"] = summary
     except Exception:
         out["summary"] = {}
 
     return out
 
-# -----------------------------
-# Compat shim antigo
-# -----------------------------
+
+# compat shim
 try:
     calc_all = globals().get("calc_all_kpis") or globals().get("calc_all")
 except Exception:
     calc_all = None
 
 def calc_estrategicos_from_dre(dfs):
-    """
-    Compat wrapper usado por db.models.
-    Delegates to calc_all_kpis and returns summary for legacy callers.
-    """
     if callable(calc_all):
         try:
             res = calc_all(dfs)
-            # legacy espera um dict com chaves de métricas (por tenant talvez)
-            # se res contém "summary" devolvemos o summary do tenant principal (first)
             if isinstance(res, dict) and "summary" in res:
-                # se caller forneceu um único tenant no dfs, retornamos summary para esse tenant
-                # fallback: retorna summary completo
                 return res["summary"]
             return res
         except Exception:
             pass
-
-    # fallback defensivo: tentar calcular ebitda/margem/patrimonio mínimo
+    # fallback defensivo
     try:
         dre = dfs.get("dre") if isinstance(dfs, dict) else (dfs if isinstance(dfs, pd.DataFrame) else pd.DataFrame())
         cont = dfs.get("contabeis") if isinstance(dfs, dict) else pd.DataFrame()

@@ -1,6 +1,5 @@
 # app/pages/upload.py
-# Página de Upload (app/pages/upload.py) com validação e upsert	Fluxo operacional do usuário único; garante dados limpos.
-#  permitir que o usuário admin envie CSV/XLSX, valide, veja preview e persista com ON CONFLICT (idempotente).
+# Página de Upload (app/pages/upload.py) com validação e upsert — fluxo operacional do usuário único.
 
 import streamlit as st
 import pandas as pd
@@ -22,13 +21,13 @@ def preview_dataframe(df: pd.DataFrame):
 def validate_and_normalize(df: pd.DataFrame, expected_cols=None):
     """
     Validação básica:
-    - verifica colunas obrigatórias
+    - verifica colunas obrigatórias (se fornecidas)
     - normaliza 'mes' como string e tenta parsear datas
     Retorna (ok: bool, df_normalized: DataFrame, issues: list[str])
     """
     issues = []
     df2 = df.copy()
-    expected = expected_cols or ["tenant_id", "mes"]
+    expected = expected_cols or []
     for c in expected:
         if c not in df2.columns:
             issues.append(f"Coluna obrigatória ausente: {c}")
@@ -45,31 +44,41 @@ def upsert_dataframe(engine, df: pd.DataFrame, table_name: str, key_cols: list):
     """
     Upsert via temp table + INSERT ... ON CONFLICT DO UPDATE.
     - df: DataFrame pronto para persistir
-    - key_cols: lista de colunas que compõem a chave única (ex: ['tenant_id','mes'])
+    - key_cols: lista de colunas que compõem a chave única (ex: ['mes'] ou ['mes','id'])
     """
     tmp_table = f"tmp_{table_name}_{int(datetime.utcnow().timestamp())}"
     df_columns = [c for c in df.columns]
     if not df_columns:
         raise ValueError("DataFrame sem colunas")
+    # qualificar nomes de tabela para evitar ambiguidade
+    qualified_table = f"public.{table_name}"
+    qualified_tmp = f"public.{tmp_table}"
     with engine.begin() as conn:
-        # grava temp table
+        # grava temp table (pandas cria a tabela no schema do engine)
         df.to_sql(tmp_table, conn, if_exists="replace", index=False)
         cols_sql = ", ".join([f'"{c}"' for c in df_columns])
-        conflict_cols = ", ".join([f'"{c}"' for c in key_cols])
+        conflict_cols = ", ".join([f'"{c}"' for c in key_cols]) if key_cols else ""
         # montar SET para update (exceto keys)
         set_sql = ", ".join([f'"{c}" = EXCLUDED."{c}"' for c in df_columns if c not in key_cols])
-        upsert_sql = f"""
-        INSERT INTO {table_name} ({cols_sql})
-        SELECT {cols_sql} FROM {tmp_table}
-        ON CONFLICT ({conflict_cols}) DO UPDATE
-        SET {set_sql};
-        """
+        if conflict_cols:
+            upsert_sql = f"""
+            INSERT INTO {qualified_table} ({cols_sql})
+            SELECT {cols_sql} FROM {qualified_tmp}
+            ON CONFLICT ({conflict_cols}) DO UPDATE
+            SET {set_sql};
+            """
+        else:
+            # sem chave de conflito definida: apenas inserir
+            upsert_sql = f"""
+            INSERT INTO {qualified_table} ({cols_sql})
+            SELECT {cols_sql} FROM {qualified_tmp};
+            """
         conn.execute(text(upsert_sql))
-        conn.execute(text(f"DROP TABLE IF EXISTS {tmp_table};"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {qualified_tmp};"))
 
 def log_upload(engine, user: str, filename: str, file_hash: str, table: str, rows: int, status: str, message: str = None):
     sql = text("""
-    INSERT INTO uploads_log (uploaded_at, uploaded_by, filename, file_hash, target_table, rows_count, status, message)
+    INSERT INTO public.uploads_log (uploaded_at, uploaded_by, filename, file_hash, target_table, rows_count, status, message)
     VALUES (:uploaded_at, :uploaded_by, :filename, :file_hash, :target_table, :rows_count, :status, :message);
     """)
     with engine.begin() as conn:
@@ -90,11 +99,13 @@ st.markdown("Envie um arquivo CSV ou XLSX. O arquivo será validado e persistido
 
 uploaded = st.file_uploader("Selecione CSV ou XLSX", type=["csv", "xlsx"], accept_multiple_files=False)
 target_table = st.selectbox("Tabela destino", ["indicadores_financeiros", "dre_financeiro", "dados_contabeis", "indicadores_vendas"], index=0)
+
+# key_cols_map agora não exige tenant_id; ajuste conforme sua chave única real
 key_cols_map = {
-    "indicadores_financeiros": ["tenant_id", "mes"],
-    "dre_financeiro": ["tenant_id", "mes"],
-    "dados_contabeis": ["tenant_id", "mes"],
-    "indicadores_vendas": ["tenant_id", "mes"]
+    "indicadores_financeiros": ["mes"],
+    "dre_financeiro": ["mes"],
+    "dados_contabeis": ["mes"],
+    "indicadores_vendas": ["mes"]
 }
 
 if uploaded:
@@ -112,7 +123,8 @@ if uploaded:
     st.subheader("Preview")
     preview_dataframe(df)
 
-    ok, df_norm, issues = validate_and_normalize(df, expected_cols=key_cols_map[target_table])
+    expected_cols = key_cols_map.get(target_table, [])
+    ok, df_norm, issues = validate_and_normalize(df, expected_cols=expected_cols)
     if not ok:
         st.warning("Problemas detectados:")
         for i in issues:
@@ -123,7 +135,7 @@ if uploaded:
             engine = get_engine()
             try:
                 with st.spinner("Gravando no banco..."):
-                    upsert_dataframe(engine, df_norm, table_name=target_table, key_cols=key_cols_map[target_table])
+                    upsert_dataframe(engine, df_norm, table_name=target_table, key_cols=key_cols_map.get(target_table, []))
                     log_upload(engine, user="admin", filename=uploaded.name, file_hash=file_hash, table=target_table, rows=len(df_norm), status="success")
                 st.success("Dados gravados com sucesso")
             except Exception as e:

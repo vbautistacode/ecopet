@@ -1,350 +1,232 @@
 # db/seed_db.py
-# Adaptar ETL/seed para Postgres (db/seed_db.py)	Testes e dados de exemplo no ambiente Postgres.
-
 """
-Atualizar db/seed_db.py para usar sqlalchemy engine (ou psycopg) em vez de SQLite specifics.
-
-Garantir que upsert funcione com ON CONFLICT e que colunas novas sejam criadas via migrations ou ALTER TABLE antes do insert.
-
-Rodar seed local apontando para um schema de teste no Supabase.
+Seed de exemplo para Postgres/Supabase (sem tenant_id).
+Gera dados fictícios para 3 meses e faz upsert por 'mes' nas tabelas alvo.
 """
 
+from datetime import datetime
+from typing import List
 import pandas as pd
-from db.models import get_connection, create_tables
 
-def _delete_existing(conn, table, tenant, mes):
+from db.models import create_tables
+from db.connection import get_connection  # pode retornar psycopg2 connection ou SQLAlchemy engine
+
+
+def _is_dbapi_conn(conn) -> bool:
+    return hasattr(conn, "cursor")
+
+
+def _bulk_upsert_dbapi(conn, table: str, df: pd.DataFrame, key_cols: List[str]):
+    if df.empty:
+        return
+
     cur = conn.cursor()
-    cur.execute(f"DELETE FROM {table} WHERE tenant_id = ? AND mes = ?", (tenant, mes))
-    conn.commit()
+    tmp_table = f"tmp_{table}_{int(datetime.utcnow().timestamp())}"
+    cols = list(df.columns)
+    cols_sql = ", ".join([f'"{c}"' for c in cols])
 
-def _upsert_dataframe(conn, table, df):
-    """
-    Para cada linha do df, remove o registro existente (tenant_id, mes) e insere a linha.
-    """
-    for _, row in df.iterrows():
-        tenant = row.get("tenant_id")
-        mes = row.get("mes")
-        if tenant is None or mes is None:
-            continue
-        _delete_existing(conn, table, tenant, mes)
-    df.to_sql(table, conn, if_exists="append", index=False)
+    # criar temp table com colunas TEXT para evitar inferência complexa
+    create_tmp_sql = f'CREATE TEMP TABLE "{tmp_table}" ({", ".join([f\'"{c}" TEXT\' for c in cols])}) ON COMMIT DROP;'
+    try:
+        cur.execute(create_tmp_sql)
+
+        # inserir linhas na temp table
+        insert_tmp_sql = f'INSERT INTO "{tmp_table}" ({cols_sql}) VALUES ({", ".join(["%s"] * len(cols))})'
+        values = [tuple("" if pd.isna(v) else v for v in row) for row in df[cols].itertuples(index=False, name=None)]
+        cur.executemany(insert_tmp_sql, values)
+
+        # montar upsert
+        conflict_cols = ", ".join([f'"{c}"' for c in key_cols]) if key_cols else ""
+        non_key_cols = [c for c in cols if c not in key_cols]
+        if conflict_cols and non_key_cols:
+            set_sql = ", ".join([f'"{c}" = EXCLUDED."{c}"' for c in non_key_cols])
+            upsert_sql = f'''
+                INSERT INTO public."{table}" ({cols_sql})
+                SELECT {cols_sql} FROM "{tmp_table}"
+                ON CONFLICT ({conflict_cols}) DO UPDATE
+                SET {set_sql};
+            '''
+        else:
+            upsert_sql = f'''
+                INSERT INTO public."{table}" ({cols_sql})
+                SELECT {cols_sql} FROM "{tmp_table}";
+            '''
+        cur.execute(upsert_sql)
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+
+def _upsert_via_engine(conn, table: str, df: pd.DataFrame, key_cols: List[str]):
+    if df.empty:
+        return
+    tmp_table = f"tmp_{table}_{int(datetime.utcnow().timestamp())}"
+    df.to_sql(tmp_table, conn, if_exists="replace", index=False, schema="public")
+    cols = list(df.columns)
+    cols_sql = ", ".join([f'"{c}"' for c in cols])
+    conflict_cols = ", ".join([f'"{c}"' for c in key_cols]) if key_cols else ""
+    non_key_cols = [c for c in cols if c not in key_cols]
+    if conflict_cols and non_key_cols:
+        set_sql = ", ".join([f'"{c}" = EXCLUDED."{c}"' for c in non_key_cols])
+        upsert_sql = f'''
+            INSERT INTO public."{table}" ({cols_sql})
+            SELECT {cols_sql} FROM public."{tmp_table}"
+            ON CONFLICT ({conflict_cols}) DO UPDATE
+            SET {set_sql};
+        '''
+    else:
+        upsert_sql = f'''
+            INSERT INTO public."{table}" ({cols_sql})
+            SELECT {cols_sql} FROM public."{tmp_table}";
+        '''
+    # executar via engine
+    with conn.begin() as c:
+        c.execute(upsert_sql)
+        c.execute(f'DROP TABLE IF EXISTS public."{tmp_table}";')
+
+
+def _upsert_dataframe(conn, table: str, df: pd.DataFrame, key_cols: List[str]):
+    if df.empty:
+        return
+
+    # normalizar datetimes para strings para evitar problemas em temp tables TEXT
+    df2 = df.copy()
+    for c in df2.columns:
+        if pd.api.types.is_datetime64_any_dtype(df2[c]):
+            df2[c] = df2[c].dt.strftime("%Y-%m-%dT%H:%M:%S")
+        else:
+            df2[c] = df2[c].astype(object)
+
+    if _is_dbapi_conn(conn):
+        _bulk_upsert_dbapi(conn, table, df2, key_cols)
+    else:
+        _upsert_via_engine(conn, table, df2, key_cols)
+
 
 def seed_db():
     conn = get_connection()
-    create_tables(conn)
+    try:
+        create_tables(conn)
+    except Exception:
+        # create_tables pode aceitar engine ou conn; ignore falhas aqui
+        pass
 
-    # meses: 2025-01, 2025-02, 2025-03
-    tenants = ["clienteA", "clienteB"]
     meses = ["2025-01", "2025-02", "2025-03"]
 
-    # -----------------------------
-    # Indicadores Financeiros (Fluxo de Caixa)
-    # -----------------------------
-    data_fin = {
-        "tenant_id": [],
-        "mes": [],
-        "entradas": [],
-        "saidas": [],
-        "saldo": [],
-        "caixa": []
-    }
-
-    # valores base para clienteA e clienteB (crescimento leve mês a mês)
-    base = {
-        "clienteA": {
-            "entradas": [25000.0, 26000.0, 27000.0],
-            "saidas": [18500.0, 18700.0, 19000.0],
-            "caixa": [12000.0, 12500.0, 13000.0]
-        },
-        "clienteB": {
-            "entradas": [18000.0, 18500.0, 19000.0],
-            "saidas": [14000.0, 14200.0, 14400.0],
-            "caixa": [8000.0, 8200.0, 8400.0]
-        }
-    }
-
-    for tenant in tenants:
-        vals = base[tenant]
-        for i, mes in enumerate(meses):
-            entradas = vals["entradas"][i]
-            saidas = vals["saidas"][i]
-            saldo = entradas - saidas
-            caixa = vals["caixa"][i]
-            data_fin["tenant_id"].append(tenant)
-            data_fin["mes"].append(mes)
-            data_fin["entradas"].append(entradas)
-            data_fin["saidas"].append(saidas)
-            data_fin["saldo"].append(saldo)
-            data_fin["caixa"].append(caixa)
-
+    # Indicadores Financeiros
+    data_fin = {"mes": [], "entradas": [], "saidas": [], "saldo": [], "caixa": []}
+    base_fin = {"entradas": [25000.0, 26000.0, 27000.0], "saidas": [18500.0, 18700.0, 19000.0], "caixa": [12000.0, 12500.0, 13000.0]}
+    for i, mes in enumerate(meses):
+        entradas = base_fin["entradas"][i]
+        saidas = base_fin["saidas"][i]
+        saldo = entradas - saidas
+        caixa = base_fin["caixa"][i]
+        data_fin["mes"].append(mes)
+        data_fin["entradas"].append(entradas)
+        data_fin["saidas"].append(saidas)
+        data_fin["saldo"].append(saldo)
+        data_fin["caixa"].append(caixa)
     df_fin = pd.DataFrame(data_fin)
-    _upsert_dataframe(conn, "indicadores_financeiros", df_fin)
+    _upsert_dataframe(conn, "indicadores_financeiros", df_fin, key_cols=["mes"])
 
-    # -----------------------------
     # DRE Financeira
-    # -----------------------------
-    # exemplo de evolução mensal leve
     data_dre = {
-        "tenant_id": [],
-        "mes": [],
-        "receita_bruta": [],
-        "deducoes": [],
-        "custo_produto_vendido": [],
-        "custo_servico_prestado": [],
-        "despesas_vendas": [],
-        "despesas_administrativas": [],
-        "outras_despesas": [],
-        "receitas_financeiras": [],
-        "despesas_financeiras": [],
-        "imposto_renda": []
+        "mes": [], "receita_bruta": [], "deducoes": [], "custo_produto_vendido": [], "custo_servico_prestado": [],
+        "despesas_vendas": [], "despesas_administrativas": [], "outras_despesas": [], "receitas_financeiras": [],
+        "despesas_financeiras": [], "imposto_renda": []
     }
-
-    dre_base = {
-        "clienteA": {
-            "receita_bruta": [250000.0, 255000.0, 260000.0],
-            "deducoes": [15000.0, 15200.0, 15400.0],
-            "cpv": [80000.0, 82000.0, 84000.0],
-            "csp": [20000.0, 20500.0, 21000.0],
-            "desp_vendas": [15000.0, 15200.0, 15300.0],
-            "desp_admin": [10000.0, 10100.0, 10200.0],
-            "outras": [5000.0, 5200.0, 5300.0],
-            "rec_fin": [8000.0, 8200.0, 8400.0],
-            "desp_fin": [4000.0, 4100.0, 4200.0],
-            "ir": [12000.0, 12200.0, 12400.0]
-        },
-        "clienteB": {
-            "receita_bruta": [180000.0, 183000.0, 186000.0],
-            "deducoes": [10000.0, 10100.0, 10200.0],
-            "cpv": [60000.0, 61000.0, 62000.0],
-            "csp": [15000.0, 15200.0, 15400.0],
-            "desp_vendas": [12000.0, 12100.0, 12200.0],
-            "desp_admin": [8000.0, 8100.0, 8200.0],
-            "outras": [4000.0, 4100.0, 4200.0],
-            "rec_fin": [5000.0, 5100.0, 5200.0],
-            "desp_fin": [3000.0, 3050.0, 3100.0],
-            "ir": [9000.0, 9200.0, 9400.0]
-        }
+    dre_vals = {
+        "receita_bruta": [250000.0, 255000.0, 260000.0],
+        "deducoes": [15000.0, 15200.0, 15400.0],
+        "custo_produto_vendido": [80000.0, 82000.0, 84000.0],
+        "custo_servico_prestado": [20000.0, 20500.0, 21000.0],
+        "despesas_vendas": [15000.0, 15200.0, 15300.0],
+        "despesas_administrativas": [10000.0, 10100.0, 10200.0],
+        "outras_despesas": [5000.0, 5200.0, 5300.0],
+        "receitas_financeiras": [8000.0, 8200.0, 8400.0],
+        "despesas_financeiras": [4000.0, 4100.0, 4200.0],
+        "imposto_renda": [12000.0, 12200.0, 12400.0]
     }
-
-    for tenant in tenants:
-        vals = dre_base[tenant]
-        for i, mes in enumerate(meses):
-            data_dre["tenant_id"].append(tenant)
-            data_dre["mes"].append(mes)
-            data_dre["receita_bruta"].append(vals["receita_bruta"][i])
-            data_dre["deducoes"].append(vals["deducoes"][i])
-            data_dre["custo_produto_vendido"].append(vals["cpv"][i])
-            data_dre["custo_servico_prestado"].append(vals["csp"][i])
-            data_dre["despesas_vendas"].append(vals["desp_vendas"][i])
-            data_dre["despesas_administrativas"].append(vals["desp_admin"][i])
-            data_dre["outras_despesas"].append(vals["outras"][i])
-            data_dre["receitas_financeiras"].append(vals["rec_fin"][i])
-            data_dre["despesas_financeiras"].append(vals["desp_fin"][i])
-            data_dre["imposto_renda"].append(vals["ir"][i])
-
+    for i, mes in enumerate(meses):
+        data_dre["mes"].append(mes)
+        for k, vals in dre_vals.items():
+            data_dre[k].append(vals[i])
     df_dre = pd.DataFrame(data_dre)
-    _upsert_dataframe(conn, "dre_financeiro", df_dre)
+    _upsert_dataframe(conn, "dre_financeiro", df_dre, key_cols=["mes"])
 
-    # -----------------------------
     # Indicadores de Vendas
-    # -----------------------------
-    data_vendas = {
-        "tenant_id": [],
-        "mes": [],
-        "volume_vendas": []
-    }
-
-    vendas_base = {
-        "clienteA": {
-            "volume": [50, 52, 55]},
-        "clienteB": {"volume": [40, 41, 43]}
-    }
-
-    for tenant in tenants:
-        vals = vendas_base[tenant]
-        for i, mes in enumerate(meses):
-            data_vendas["tenant_id"].append(tenant)
-            data_vendas["mes"].append(mes)
-            data_vendas["volume_vendas"].append(vals["volume"][i])
-
+    data_vendas = {"mes": [], "volume_vendas": []}
+    vendas_vals = [50, 52, 55]
+    for i, mes in enumerate(meses):
+        data_vendas["mes"].append(mes)
+        data_vendas["volume_vendas"].append(vendas_vals[i])
     df_vendas = pd.DataFrame(data_vendas)
-    _upsert_dataframe(conn, "indicadores_vendas", df_vendas)
+    _upsert_dataframe(conn, "indicadores_vendas", df_vendas, key_cols=["mes"])
 
-    # -----------------------------
     # Indicadores Operacionais
-    # -----------------------------
-    data_op = {
-        "tenant_id": [],
-        "mes": [],
-        "vendas": [],
-        "vendedores": [],
-        "quantidade": [],
-        "producao": []
-    }
-
-    # preenchimento plausível a partir dos valores originais:
-    op_base = {
-        "clienteA": {
-            "prod": [95.0, 95.5, 96.0],   # mapeado para producao
-            "vendedores": [5, 5, 5],     # valor plausível constante
-            "quantidade": [120, 125, 130],# exemplo de unidades produzidas
-            "vendas": [50, 52, 55]        # igual ao volume de vendas
-        },
-        "clienteB": {
-            "prod": [90.0, 90.5, 91.0],
-            "vendedores": [4, 4, 4],
-            "quantidade": [90, 95, 98],
-            "vendas": [40, 41, 43]
-        }
-    }
-
-    for tenant in tenants:
-        vals = op_base[tenant]
-        for i, mes in enumerate(meses):
-            data_op["tenant_id"].append(tenant)
-            data_op["mes"].append(mes)
-            data_op["vendas"].append(vals["vendas"][i])
-            data_op["vendedores"].append(vals["vendedores"][i])
-            data_op["quantidade"].append(vals["quantidade"][i])
-            data_op["producao"].append(vals["prod"][i])
-
+    data_op = {"mes": [], "vendas": [], "vendedores": [], "quantidade": [], "producao": []}
+    op_vals = {"vendas": [50, 52, 55], "vendedores": [5, 5, 5], "quantidade": [120, 125, 130], "producao": [95.0, 95.5, 96.0]}
+    for i, mes in enumerate(meses):
+        data_op["mes"].append(mes)
+        for k in ["vendas", "vendedores", "quantidade", "producao"]:
+            data_op[k].append(op_vals[k][i])
     df_op = pd.DataFrame(data_op)
-    _upsert_dataframe(conn, "indicadores_operacionais", df_op)
+    _upsert_dataframe(conn, "indicadores_operacionais", df_op, key_cols=["mes"])
 
-    # -----------------------------
     # Indicadores de Marketing
-    # -----------------------------
-    
-    data_mkt = {
-        "tenant_id": [],
-        "mes": [],
-        "receita": [],
-        "investimento": [],
-        "leads_gerados": []
-    }
-
-    mkt_base = {
-        "clienteA": {
-            "receita": [25000.0, 26000.0, 27000.0],
-            "invest": [6000.0, 6200.0, 6400.0],
-            "leads": [200, 210, 220]
-        },
-        "clienteB": {
-            "receita": [18000.0, 18500.0, 19000.0],
-            "invest": [4000.0, 4200.0, 4400.0],
-            "leads": [150, 155, 160]
-        }
-    }
-
-    for tenant in tenants:
-        vals = mkt_base[tenant]
-        for i, mes in enumerate(meses):
-            data_mkt["tenant_id"].append(tenant)
-            data_mkt["mes"].append(mes)
-            data_mkt["receita"].append(vals["receita"][i])
-            data_mkt["investimento"].append(vals["invest"][i])
-            data_mkt["leads_gerados"].append(vals["leads"][i])
-
+    data_mkt = {"mes": [], "receita": [], "investimento": [], "leads_gerados": []}
+    mkt_vals = {"receita": [25000.0, 26000.0, 27000.0], "investimento": [6000.0, 6200.0, 6400.0], "leads_gerados": [200, 210, 220]}
+    for i, mes in enumerate(meses):
+        data_mkt["mes"].append(mes)
+        for k in ["receita", "investimento", "leads_gerados"]:
+            data_mkt[k].append(mkt_vals[k][i])
     df_mkt = pd.DataFrame(data_mkt)
-    _upsert_dataframe(conn, "indicadores_marketing", df_mkt)
+    _upsert_dataframe(conn, "indicadores_marketing", df_mkt, key_cols=["mes"])
 
-    # -----------------------------
     # Indicadores de Clientes
-    # -----------------------------
-    data_cli = {
-        "tenant_id": [],
-        "mes": [],
-        "clientes_ativos": []
-    }
-
-    cli_base = {
-        "clienteA": {
-            "ativos": [60, 62, 64]
-        },
-        "clienteB": {
-            "ativos": [45, 46, 47]
-        }
-    }
-
-    for tenant in tenants:
-        vals = cli_base[tenant]
-        for i, mes in enumerate(meses):
-            data_cli["tenant_id"].append(tenant)
-            data_cli["mes"].append(mes)
-            data_cli["clientes_ativos"].append(vals["ativos"][i])
-
+    data_cli = {"mes": [], "clientes_ativos": []}
+    cli_vals = [60, 62, 64]
+    for i, mes in enumerate(meses):
+        data_cli["mes"].append(mes)
+        data_cli["clientes_ativos"].append(cli_vals[i])
     df_cli = pd.DataFrame(data_cli)
-    _upsert_dataframe(conn, "indicadores_clientes", df_cli)
+    _upsert_dataframe(conn, "indicadores_clientes", df_cli, key_cols=["mes"])
 
-    # -----------------------------
-    # Dados Contábeis (repetidos por mês para simplificar)
-    # -----------------------------
-    data_contabil = {
-        "tenant_id": [],
-        "mes": [],
-        "patrimonio_liquido": [],
-        "ativos": [],
-        "ativo_circulante": [],
-        "disponibilidade": [],
-        "divida_bruta": [],
-        "divida_liquida": [],
-        "numero_papeis": [],
-        "free_float": [],
-        "segmento_listagem": [],
-        "tipo_empresa": []
+    # Dados Contábeis
+    data_cont = {
+        "mes": [], "patrimonio_liquido": [], "ativos": [], "ativo_circulante": [], "disponibilidade": [],
+        "divida_bruta": [], "divida_liquida": [], "numero_papeis": [], "free_float": [], "segmento_listagem": [], "tipo_empresa": []
     }
-
-    cont_base = {
-        "clienteA": {
-            "patrimonio_liquido": 57200.0,
-            "ativos": 45121.0,
-            "ativo_circulante": 15965.0,
-            "disponibilidade": 44560.0,
-            "divida_bruta": 16298.0,
-            "divida_liquida": 11842.0,
-            "numero_papeis": 13534,
-            "free_float": 0.989,
-            "segmento_listagem": "Novo Mercado",
-            "tipo_empresa": "aberta"
-        },
-        "clienteB": {
-            "patrimonio_liquido": 32000.0,
-            "ativos": 21000.0,
-            "ativo_circulante": 75000.0,
-            "disponibilidade": 25000.0,
-            "divida_bruta": 80000.0,
-            "divida_liquida": 5500.0,
-            "numero_papeis": None,
-            "free_float": None,
-            "segmento_listagem": None,
-            "tipo_empresa": "fechada"
-        }
+    cont_vals = {
+        "patrimonio_liquido": 57200.0, "ativos": 45121.0, "ativo_circulante": 15965.0, "disponibilidade": 44560.0,
+        "divida_bruta": 16298.0, "divida_liquida": 11842.0, "numero_papeis": 13534, "free_float": 0.989,
+        "segmento_listagem": "Novo Mercado", "tipo_empresa": "aberta"
     }
+    for mes in meses:
+        data_cont["mes"].append(mes)
+        for k, v in cont_vals.items():
+            data_cont[k].append(v)
+    df_cont = pd.DataFrame(data_cont)
+    _upsert_dataframe(conn, "dados_contabeis", df_cont, key_cols=["mes"])
 
-    for tenant in tenants:
-        vals = cont_base[tenant]
-        for mes in meses:
-            data_contabil["tenant_id"].append(tenant)
-            data_contabil["mes"].append(mes)
-            data_contabil["patrimonio_liquido"].append(vals["patrimonio_liquido"])
-            data_contabil["ativos"].append(vals["ativos"])
-            data_contabil["ativo_circulante"].append(vals["ativo_circulante"])
-            data_contabil["disponibilidade"].append(vals["disponibilidade"])
-            data_contabil["divida_bruta"].append(vals["divida_bruta"])
-            data_contabil["divida_liquida"].append(vals["divida_liquida"])
-            data_contabil["numero_papeis"].append(vals["numero_papeis"])
-            data_contabil["free_float"].append(vals["free_float"])
-            data_contabil["segmento_listagem"].append(vals["segmento_listagem"])
-            data_contabil["tipo_empresa"].append(vals["tipo_empresa"])
+    # fechar conexão se for DB-API
+    try:
+        if _is_dbapi_conn(conn):
+            conn.close()
+    except Exception:
+        pass
 
-    df_cont = pd.DataFrame(data_contabil)
-    _upsert_dataframe(conn, "dados_contabeis", df_cont)
-
-    conn.close()
     print("🌱 Dados fictícios para 3 meses inseridos com sucesso!")
+
 
 if __name__ == "__main__":
     seed_db()
-
-# Rodar este script irá popular o banco de dados com dados financeiros e contábeis fictícios para dois clientes: um de capital aberto e outro de capital fechado.
-#python -m db.seed_db
