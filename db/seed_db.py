@@ -1,4 +1,13 @@
 # db/seed_db.py
+# Adaptar ETL/seed para Postgres (db/seed_db.py)	Testes e dados de exemplo no ambiente Postgres.
+
+"""
+Atualizar db/seed_db.py para usar sqlalchemy engine (ou psycopg) em vez de SQLite specifics.
+
+Garantir que upsert funcione com ON CONFLICT e que colunas novas sejam criadas via migrations ou ALTER TABLE antes do insert.
+
+Rodar seed local apontando para um schema de teste no Supabase.
+"""
 
 import pandas as pd
 from db.models import get_connection, create_tables

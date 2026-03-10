@@ -5,6 +5,7 @@ alembic
 psycopg2-binary
 bcrypt
 python-dotenv
+psycopg[binary]
 pandas
 numpy
 scikit-learn

@@ -1,4 +1,6 @@
 # apply_fallbacks_derived.py
+# KPIs e fallbacks (apply_fallbacks_derived.py)	Garantir Margem Líquida e CAGR calculados corretamente.
+
 import math
 import sqlite3
 from pathlib import Path
