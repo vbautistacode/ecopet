@@ -32,7 +32,7 @@ def show_login():
                 username = st.text_input("Usuário", key="login_username")
                 password = st.text_input("Senha", type="password", key="login_password")
 
-            submit = st.form_submit_button("Entrar")
+                submit = st.form_submit_button("Entrar")
 
     # Se o usuário submeteu o formulário, processar autenticação
     if submit:
