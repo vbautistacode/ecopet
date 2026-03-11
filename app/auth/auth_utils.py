@@ -24,7 +24,7 @@ except Exception:
         raise RuntimeError("Nenhum backend de hash disponível. Instale 'passlib' (recomendado) ou 'werkzeug'.")
 
 # Use centralized connection helper (expects psycopg2-based connection)
-from db.connection import get_connection
+from db.connection import get_connection, get_dict_cursor
 
 try:
     import psycopg2  # type: ignore
@@ -37,19 +37,11 @@ except Exception:
 # -------------------------
 # User retrieval / creation
 # -------------------------
-def get_user_by_username(conn, username: str) -> Optional[Dict[str, Any]]:
-    """
-    Return a user dict or None.
-    Expected columns: id, name, username, password_hash, role
-    """
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute(
-            "SELECT id, name, username, password_hash, role FROM public.users WHERE username = %s",
-            (username,),
-        )
-        row = cur.fetchone()
-        return dict(row) if row else None
-
+def get_user_by_username(conn, username):
+    # usa get_dict_cursor para compatibilidade com psycopg3 e psycopg2
+    with get_dict_cursor(conn) as cur:
+        cur.execute("SELECT * FROM users WHERE username = %s", (username,))
+        return cur.fetchone()
 
 def create_user(conn, name: str, username: str, password: str, role: str = "viewer") -> None:
     """
