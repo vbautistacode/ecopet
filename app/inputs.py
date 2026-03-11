@@ -36,7 +36,8 @@ def show_inputs(key_prefix: str = "manual"):
         for v in key_map.values():
             if v in st.session_state:
                 del st.session_state[v]
-        st.experimental_rerun()
+        from app.utils.streamlit_compat import force_rerun
+        force_rerun()
 
     if submit:
         # grava no session_state para reuso por outras partes do app

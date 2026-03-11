@@ -24,7 +24,6 @@ from db.models import create_tables
 st.set_page_config(page_title="Streamdash BI", layout="wide")
 st.title("📊 EcoPet - BI")
 
-
 def main():
     # Garantir estado inicial
     if "authenticated" not in st.session_state:
@@ -45,7 +44,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 # -----------------------------
 # Inicialização do banco (idempotente)
@@ -77,8 +75,10 @@ uploaded_files = st.sidebar.file_uploader(
     "📁 Upload de dados (.csv ou .xlsx)", type=["csv", "xlsx"], accept_multiple_files=True
 )
 
+from app.utils.streamlit_compat import force_rerun
 if st.sidebar.button("🔄 Atualizar dados"):
-    st.experimental_rerun()
+    
+    force_rerun()
 
 
 # -----------------------------
