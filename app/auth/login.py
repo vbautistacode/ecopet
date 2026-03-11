@@ -32,7 +32,7 @@ def show_login():
     with center:
         st.markdown(
             "<div style='text-align:center; margin-top: 8px; margin-bottom: 8px;'>"
-            "<h3 style='margin:0;'>🔐 Login</h3></div>",
+            "<h3 style='margin:0;'>🔐 Login | EcoPet - BI</h3></div>",
             unsafe_allow_html=True,
         )
 

@@ -22,7 +22,6 @@ from db.models import create_tables
 # Configuração da aplicação
 # -----------------------------
 st.set_page_config(page_title="EcoPet - BI", layout="wide")
-st.title("🖥️ Painel de Business Intelligence | EcoPet")
 
 def main():
     # Garantir estado inicial
@@ -45,6 +44,7 @@ def main():
 if __name__ == "__main__":
     main()
 
+st.title("🖥️ Painel de Business Intelligence | EcoPet")
 # -----------------------------
 # Inicialização do banco (idempotente)
 # -----------------------------
