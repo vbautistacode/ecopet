@@ -1,11 +1,12 @@
+# etl/loaders.py
 import pandas as pd
+import unidecode
 
-def load_csv(file):
-    df = pd.read_csv(file)
-    df.columns = df.columns.str.strip().str.lower()  # padroniza nomes
-    return df
+def _normalize_cols(cols):
+    cols = [unidecode.unidecode(c).strip().lower().replace(" ", "_") for c in cols]
+    return cols
 
-def load_excel(file):
-    df = pd.read_excel(file)
-    df.columns = df.columns.str.strip().str.lower()
+def load_csv(file, dtype_map=None, parse_dates=None):
+    df = pd.read_csv(file, dtype=dtype_map, parse_dates=parse_dates)
+    df.columns = _normalize_cols(df.columns)
     return df
