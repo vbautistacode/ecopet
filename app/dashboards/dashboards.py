@@ -178,8 +178,8 @@ def show_dashboard(dfs: Dict[str, pd.DataFrame], tenant_id: Optional[str], perio
     df_cont = _apply_period_filter(df_cont, periodo)
 
     tabs = st.tabs([
-        "💰 Financeiro", "📑 DRE", "🛒 Operacional", "👥 Clientes",
-        "📣 Marketing", "📘 Setores", "📊 Indicadores Estratégicos"
+        "💰 Financeiro", "📑 DRE", "🛒 Vendas", "⚙️ Operacional",
+        "📣 Marketing", "👥 Clientes", "📘 Setores", "📊 Indicadores Estratégicos"
     ])
 
     tab_fin, tab_dre, tab_sales, tab_ops, tab_mkt, tab_cli, tab_cont, tab_estrat = tabs
