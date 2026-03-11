@@ -4,12 +4,11 @@ Create users table in Supabase/Postgres.
 
 Usage:
   export STREAMDASH_DB=postgres
-  export DATABASE_URL="postgresql://user:pass@host:5432/dbname"
+  export DATABASE_URL="postgresql://postgres:CGUh0NTdOuv9spKp@db.jxamzozlonqsvmqmipym.supabase.co:5432/postgres"
   python app/auth/create_schema.py
 """
 
 from db.connection import get_connection
-
 
 def create_users_table():
     conn = None
