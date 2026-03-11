@@ -21,8 +21,8 @@ from db.models import create_tables
 # -----------------------------
 # Configuração da aplicação
 # -----------------------------
-st.set_page_config(page_title="Streamdash BI", layout="wide")
-st.title("📊 EcoPet - BI")
+st.set_page_config(page_title="EcoPet - BI", layout="wide")
+st.title("📊 EcoPet - Painel de Business Intelligence")
 
 def main():
     # Garantir estado inicial
