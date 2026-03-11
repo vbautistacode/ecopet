@@ -53,3 +53,18 @@ def transform_clients(df):
         "nps": df.get("nps", 75)
     })
     return df_cli
+
+# etl/transformers.py (exemplo de join receita+despesa)
+def build_financial_kpis(stg_receita, stg_despesa, stg_investimentos=None):
+    rec = stg_receita.groupby('mes', as_index=False)['valor'].sum().rename(columns={'valor':'receita'})
+    desp = stg_despesa.groupby('mes', as_index=False)['valor'].sum().rename(columns={'valor':'despesa'})
+    df = rec.merge(desp, on='mes', how='outer').fillna(0)
+    if stg_investimentos is not None:
+        inv = stg_investimentos.groupby('mes', as_index=False)['valor'].sum().rename(columns={'valor':'investimentos'})
+        df = df.merge(inv, on='mes', how='left').fillna({'investimentos':0})
+    else:
+        df['investimentos'] = 0
+    df['lucro'] = df['receita'] - (df['despesa'] + df['investimentos'])
+    df['ebitda'] = df.get('ebitda', df['receita'] - df['despesa'])
+    df['roi'] = (df['receita'] - df['despesa']) / df['investimentos'].replace({0: pd.NA})
+    return df/;
