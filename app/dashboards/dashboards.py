@@ -256,6 +256,13 @@ def show_dashboard(dfs: Dict[str, pd.DataFrame], tenant_id: Optional[str], perio
             st.info("Nenhum dado de clientes disponível.")
 
     # -----------------------------
+    # Setores
+    # -----------------------------
+    from app.dashboards.setor import show_setor
+    with tab_cont:
+        show_setor(tab_cont, df_setores=None, df_fin=df_fin, df_ops=df_ops, setor_col='setor', valor_col='valor', titulo='Receita por Setor', modo=modo)
+
+    # -----------------------------
     # Indicadores Estratégicos
     # -----------------------------
     with tab_estrat:
