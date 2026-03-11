@@ -12,7 +12,6 @@ import streamlit as st
 import pandas as pd
 
 from app.auth.login import show_login
-from app.auth.manage_users import show_manage_users
 from app.dashboards.dashboards import show_dashboard
 
 from db.connection import get_connection
@@ -38,16 +37,11 @@ def main():
     # Daqui para baixo, só roda se estiver autenticado
     st.sidebar.title("📂 Menu")
 
-    if st.session_state["role"] == "admin":
-        choice = st.sidebar.radio("Navegação", ["Dashboards", "Gestão de Usuários"])
-    else:
-        choice = st.sidebar.radio("Navegação", ["Dashboards"])
+    # Removida a opção "Gestão de Usuários" — sempre apenas Dashboards
+    choice = st.sidebar.radio("Navegação", ["Dashboards"])
 
     if choice == "Dashboards":
         pass
-    elif choice == "Gestão de Usuários":
-        show_manage_users()
-
 
 if __name__ == "__main__":
     main()
