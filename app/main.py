@@ -209,3 +209,4 @@ dfs = fetch_all_tables()
 
 # Chamar o dashboard sem tenant_id (pass None). show_dashboard é defensivo e só filtrará se a coluna existir.
 show_dashboard(dfs, tenant_id=None, periodo=periodo, modo=modo)
+# python -m streamlit run app/main.py
