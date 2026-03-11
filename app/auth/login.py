@@ -1,7 +1,7 @@
 # app/auth/login.py
+import time
 import streamlit as st
 from app.auth.auth_utils import get_connection, get_user_by_username, verify_password, is_admin
-from app.utils.streamlit_compat import force_rerun
 
 def show_login():
     # Inicializa estado
@@ -15,8 +15,16 @@ def show_login():
         if st.sidebar.button("Logout"):
             st.session_state["authenticated"] = False
             st.session_state["role"] = None
-            # tentar forçar rerun para atualizar UI (compatível com versões recentes)
-            force_rerun()
+            # forçar rerun simples via query params
+            try:
+                params = dict(st.query_params)
+                params["_logout_ts"] = str(time.time())
+                st.query_params = params
+                st.stop()
+            except Exception:
+                # fallback: toggle flag e stop
+                st.session_state["_force_rerun_flag"] = not st.session_state.get("_force_rerun_flag", False)
+                st.stop()
         return
 
     # Layout centralizado: três colunas, conteúdo no centro
@@ -37,36 +45,54 @@ def show_login():
 
                 submit = st.form_submit_button("Entrar")
 
-                # Se o usuário submeteu o formulário, processar autenticação
+                # Processamento da submissão: apenas altera estado e sinaliza sucesso
                 if submit:
                     if not username or not password:
                         st.error("Preencha usuário e senha.")
-                        st.stop()
-
-                    try:
-                        with st.spinner("Validando credenciais..."):
-                            conn = get_connection()
-                            try:
-                                user = get_user_by_username(conn, username)
-                            finally:
+                    else:
+                        try:
+                            with st.spinner("Validando credenciais..."):
+                                conn = get_connection()
                                 try:
-                                    conn.close()
-                                except Exception:
-                                    pass
+                                    user = get_user_by_username(conn, username)
+                                finally:
+                                    try:
+                                        conn.close()
+                                    except Exception:
+                                        pass
 
-                        if user and verify_password(password, user.get("password_hash")):
-                            st.session_state["authenticated"] = True
-                            st.session_state["role"] = user.get("role")
-                            st.success(f"Bem-vindo {user.get('name', username)}!")
-                            # força recarregamento de forma compatível com a API atual do Streamlit
-                            force_rerun()
-                            return
-                        else:
-                            st.error("Usuário ou senha incorretos.")
-                    except Exception as e:
-                        st.error(f"Erro ao validar credenciais: {str(e)}")
-                        st.stop()
+                            if user and verify_password(password, user.get("password_hash")):
+                                # Atualiza estado de sessão imediatamente
+                                st.session_state["authenticated"] = True
+                                st.session_state["role"] = user.get("role")
+                                # sinaliza que devemos forçar rerun fora do contexto do form
+                                st.session_state["_login_rerun_pending"] = True
+                                st.success(f"Bem-vindo {user.get('name', username)}!")
+                            else:
+                                st.error("Usuário ou senha incorretos.")
+                        except Exception as e:
+                            st.error(f"Erro ao validar credenciais: {str(e)}")
 
-                # Se ainda não autenticado, interrompe o app aqui
-                if not st.session_state.get("authenticated", False):
+        # Fora do contexto do form: se o login acabou de ocorrer, forçar rerun uma vez
+        if st.session_state.get("_login_rerun_pending"):
+            # remove a flag antes de forçar rerun para evitar loops
+            st.session_state.pop("_login_rerun_pending", None)
+            # força recarregamento via st.query_params (API estável) e interrompe execução atual
+            try:
+                params = dict(st.query_params)
+                params["_login_ts"] = str(time.time())
+                st.query_params = params
+                st.stop()
+                return
+            except Exception:
+                # fallback: toggle flag em session_state e stop
+                st.session_state["_force_rerun_flag"] = not st.session_state.get("_force_rerun_flag", False)
+                try:
                     st.stop()
+                    return
+                except Exception:
+                    pass
+
+        # Se ainda não autenticado, interrompe o app aqui
+        if not st.session_state.get("authenticated", False):
+            st.stop()
