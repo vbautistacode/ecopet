@@ -36,7 +36,6 @@ streamlit run app/main.py
 ---
 
 ### Segurança e controle de acesso (crucial)
-**Não faça**: expor a mesma credencial de banco no frontend ou compartilhar `service_role` com o cliente. Isso quebra segurança e auditoria.  
 **Faça**:
 - **Backend com service_role**: apenas o backend/worker usa a chave `service_role` para ETL.  
 - **Frontend usa anon/authenticated**: operações do usuário (upload) usam chaves públicas limitadas.  
@@ -83,13 +82,3 @@ streamlit run app/main.py
 - [ ] Adicionar `import_batch_id` em staging e fatos.  
 - [ ] Habilitar backups automáticos e logs de auditoria.  
 - [ ] Configurar monitoramento e alertas (falha de ETL, fila parada, uso de disco).
-
----
-
-### Recomendações finais e prioridade imediata
-1. **Nunca** compartilhe `service_role` no Streamlit.  
-2. Mova o ETL para um backend (Edge Function ou worker).  
-3. Implemente `uploads` + `stg_` + `ON CONFLICT` para garantir idempotência e preservar backlog.  
-4. Crie contas separadas para você e cliente com permissões mínimas; use logs e 2FA.  
-
-Se quiser, eu já gero: **(A)** um diagrama de arquitetura resumido, **(B)** exemplo de Edge Function (JavaScript) que processa um upload do Storage e chama o ETL, ou **(C)** um `docker-compose` simples para rodar um worker local que consome uma fila e executa o script ETL. Diga qual opção prefere e eu retorno o código pronto.
