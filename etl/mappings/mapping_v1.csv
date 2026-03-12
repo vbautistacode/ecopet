@@ -1,0 +1,116 @@
+﻿arquivo;coluna_origem;nome_destino;tipo_destino;obrigatório;chave_natural;transformação;validação;uso_DRE;uso_Financeiro;uso_Produtividade;uso_Vendas;Uso_Setores;observações
+fluxo_de_caixa_diario;Data;date;date;Sim;Sim;parse dayfirst;not null;Não;Sim;Não;Não;Não;usar para reconciliar caixa
+fluxo_de_caixa_diario;Recebimentos (R$);cash_in;numeric;Sim;No;parse decimal;>=0;Não;Receita;Não;Não;Não;entradas do dia
+fluxo_de_caixa_diario;Pagamentos (R$);cash_out;numeric;Sim;No;parse decimal;>=0;Não;Despesa;Não;Não;Não;saídas do dia
+fluxo_de_caixa_diario;Transf. Entrada (R$);transfer_in;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;transferências recebidas
+fluxo_de_caixa_diario;Transf. Saída (R$);transfer_out;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;transferências enviadas
+fluxo_de_caixa_diario;Saldo Final (R$);closing_balance;numeric;Sim;No;parse decimal; ;Não;Saldo;Não;Não;Não;usar para conciliação diária
+InteligenciaVendas_Animais;Código;codigo_animal;text;Sim;Sim;trim;not null;Não;Não;Não;Sim;Não;identificador do animal no sistema
+InteligenciaVendas_Animais;Nome;nome_animal;text;Sim;No;trim;not null;Não;Não;Não;Sim;Não;nome do animal
+InteligenciaVendas_Animais;Espécie;especie;text;Sim;No;trim; ;Não;Não;Não;Sim;Não;Canina/Felina
+InteligenciaVendas_Animais;Raça;raca;text;Sim;No;trim; ;Não;Não;Não;Sim;Não;informação de raça
+InteligenciaVendas_Animais;Nascimento;birth_date;date;Não;No;parse dayfirst; ;Não;Não;Não;Não;Não;usar para calcular idade
+InteligenciaVendas_Animais;Idade;age;text;Sim;No;trim; ;Não;Não;Não;Sim;Não;valor derivado de birth_date
+InteligenciaVendas_Animais;Status;status_animal;text;Não;No;trim; ;Não;Não;Não;Sim;Não;Ativo/Inativo
+InteligenciaVendas_Animais;Nome cliente;client_name;text;Sim;No;trim; ;Não;Não;Não;Sim;Não;referência ao cliente
+InteligenciaVendas_Animais;Código cliente;client_code;text;Sim;No;trim; ;Não;Não;Não;Sim;Não;usar para join com clientes
+InteligenciaVendas_Animais;Pelagem;coat;text;Não;No;trim;;Não;Não;Não;Não;Não;
+InteligenciaVendas_Animais;Esterilização;sterilization;text;Não;No;trim;;Não;Não;Não;Não;Não;
+InteligenciaVendas_Animais;Sexo;sex_animal;text;Não;No;trim;;Não;Não;Não;Não;Não;
+InteligenciaVendas_Animais;Pedigree;pedigree;text;Não;No;trim;;Não;Não;Não;Não;Não;
+InteligenciaVendas_Animais;Chip;chip_id;text;Não;Não;"parse decimal;abs(value)";;Não;Não;Não;Não;Não;
+InteligenciaVendas_Animais;Tags;tags_animal;text;Não;No;trim;;Não;Não;Não;Não;Não;
+InteligenciaVendas_Animais;Sexo;sex_animal;text;Não;No;trim;;Não;Não;Não;Não;Não;
+InteligenciaVendas_Animais;Email;client_email;text;Não;No;trim;valid email;Não;Não;Não;Não;Não;para comunicações
+InteligenciaVendas_Animais;Celular;client_phone;text;Não;No;trim; ;Não;Não;Não;Não;Não;telefone do cliente
+InteligenciaVendas_Animais;CEP;client_cep;text;Sim;No;strip non-digits;valid CEP;Não;Não;Não;Sim;Não;código postal
+InteligenciaVendas_Animais;Endereço;client_address;text;Não;No;trim; ;Não;Não;Não;Não;Não;endereço principal
+InteligenciaVendas_Animais;Número;client_number;text;Não;No;trim; ;Não;Não;Não;Não;Não;número endereço
+InteligenciaVendas_Animais;Bairro;client_neighborhood;text;Não;No;trim; ;Não;Não;Não;Não;Não;complemento endereço
+InteligenciaVendas_Animais;Aceita email?;accept_email;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Animais;Aceita SMS?;accept_sms;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Animais;Aceita campanha SMS?;accept_sms_camp;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Ficha;client_id;text;Sim;Sim;trim;not null;Não;Não;Não;Sim;Não;identificador do cliente
+InteligenciaVendas_Clientes;Nome;client_name;text;Sim;No;trim;not null;Não;Não;Não;Sim;Não;nome do cliente
+InteligenciaVendas_Clientes;CPF;client_cpf;text;Não;No;strip non-digits;valid CPF;Não;Não;Não;Não;Não;opcional para compliance
+InteligenciaVendas_Clientes;Email;client_email;text;Não;No;trim;valid email;Não;Não;Não;Não;Não;para comunicações
+InteligenciaVendas_Clientes;Celular;client_phone;text;Não;No;trim; ;Não;Não;Não;Não;Não;telefone do cliente
+InteligenciaVendas_Clientes;Endereço;client_address;text;Não;No;trim; ;Não;Não;Não;Não;Não;endereço principal
+InteligenciaVendas_Clientes;Bairro;client_neighborhood;text;Não;No;trim; ;Não;Não;Não;Não;Não;complemento endereço
+InteligenciaVendas_Clientes;CEP;client_cep;text;Sim;No;strip non-digits;valid CEP;Não;Não;Não;Sim;Não;código postal
+InteligenciaVendas_Clientes;Inclusão;created_at;timestamptz;Não;No;parse dayfirst to ISO; ;Não;Não;Não;Não;Não;data de criação no sistema
+InteligenciaVendas_Clientes;Atualização;updated_at;timestamptz;Não;No;parse dayfirst to ISO; ;Não;Não;Não;Não;Não;data da última atualização
+InteligenciaVendas_Clientes;RG;client_rg;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Cidade;client_city;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;UF;client_state;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Classificação no ciclo de vida;lifecycle_classification;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Situação no ciclo de vida;lifecycle_status;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Comparecimento;attendance_status;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Tempo de relacionamento;relationship_duration;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Tipo de pessoa;person_type;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Profissão;profession;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Sexo;gender_client;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Origem;origin_source;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;NPS;nps_score;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Ranking ABC;abc_rank;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Último acesso ao SimplesPet;last_simplespet_access;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Tags;tags_client;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Animais vivos;animals_alive_count;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Aceita email?;accept_email;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Aceita SMS?;accept_sms;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+InteligenciaVendas_Clientes;Aceita campanha SMS?;accept_sms_camp;text;Não;No;trim; ;Não;Não;Não;Não;Não;
+VendasProdutos;Data e Hora;sale_datetime;timestamptz;Sim;Sim;"parse dayfirst to ISO; set timezone";not null;Receita;Não;Sim;Sim;Sim;usar timezone do servidor
+VendasProdutos;Grupo;product_group;text;Sim;Não;"trim;upper";not null;Receita;Não;Sim;Sim;Sim;mapear para dim_product.group
+VendasProdutos;Produto/Serviço;product_name;text;Sim;Sim;"normalize case;trim";not null;Receita;Não;Sim;Sim;Sim;gerar product_code se ausente
+VendasProdutos;Quantidade;quantity;numeric;Sim;Não;parse decimal;>0;Não;Não;Sim;Sim;Sim;usar para produtividade
+VendasProdutos;Líquido;revenue_net;numeric;Sim;Não;"parse decimal;abs(value)";not null;Receita;Não;Sim;Sim;Sim;valor líquido da venda
+VendasProdutos;%;percent_com;numeric;Não;Não;"parse decimal;abs(value)";;Não;Não;Não;Não;Não;percentual de comissão
+VendasProdutos;Animal;pacient_name;text;Não;Não;trim;;Não;Não;Não;Não;Não;nome do animal
+VendasProdutos;Base da Comissão;comission_ground;numeric;Não;Não;parse decimal;>=0;Não;Não;Não;Não;Não;usar para produtividade por profissional
+VendasProdutos;Bruto;gross_revenue;numeric;Não;Sim;parse decimal; ;Não;Não;Não;Não;Não;receita bruta de vendas
+VendasProdutos;Celular;phone_client;text;Não;Não;"trim;map synonyms"; ;Não;Não;Não;Não;Não;contato telefonico
+VendasProdutos;Cliente;client;text;Sim;Não;trim; ;Não;Não;Não;Sim;Não;nome de cliente
+VendasProdutos;Comissão;comission;text;Não;Não;trim; ;Não;Não;Não;Não;Não;comissão
+VendasProdutos;Desconto;revenue_discount;numeric;Não;Não;trim; ;Não;Não;Não;Não;Não;calculo fixo de comissão
+VendasProdutos;Email;email_contact;text;Não;No;trim;>=0;Não;Não;Não;Não;Não;email de cliente
+VendasProdutos;Espécie;type_animal;text;Não;Não;trim;>=0;Não;Não;Não;Não;Não;especie do animal
+VendasProdutos;Funcionário;cost_total;numeric;Não;Não;parse decimal;>=0;Não;Não;Sim;Não;Não;usar para produtividade por profissional
+VendasProdutos;Status comissão;comission_status;numeric;Não;No;parse decimal; ;Não;Não;Não;Não;Não;usar para segmentação
+VendasProdutos;Status da venda;sale_status;text;Sim;No;trim; ;Sim;Não;Sim;Não;Sim;Utilizar apenas Baixado
+VendasProdutos;Tipo do Item;item_type;text;Sim;No;trim; ;Não;Não;Sim;Não;Não;tipo de venda
+VendasProdutos;Valor Custo;cost_price;numeric;Não;Sim;trim; ;Não;Não;Não;Não;Não;usar como chave se presente
+VendasProdutos;Valor Unitário;sale_price;numeric;Não;No;parse decimal; ;Não;Não;Não;Não;Não;quando separado da data
+VendasProdutos;Venda;sales;numeric;Não;No;parse decimal; ;Não;Não;Não;Não;Não;ex.: un
+VendasProdutos;Observações;notes_sale;text;Não;No;trim; ;Não;Não;Não;Não;Não;observações da venda
+Visao_Contas_a_Pagar;Identificador do fornecedor;supplier_cnpj;text;Sim;Não;"strip non-digits;pad zeros";;Não;Não;Não;Não;Não;usar para agrupar fornecedor
+Visao_Contas_a_Pagar;Nome do fornecedor;supplier_name;text;Não;Não;"trim;normalize case";;Não;Não;Não;Não;Não;normalizar nomes
+Visao_Contas_a_Pagar;Nota fiscal;invoice_ref;text;Sim;Não;trim; ;Não;Não;Não;Não;Não;usar em UNIQUE(invoice_ref
+Visao_Contas_a_Pagar;Código de referência;reference_code;text;Não;Não;trim; ;Não;Não;Não;Não;Não;referência interna
+Visao_Contas_a_Pagar;Categoria 1;category_level1;text;Sim;Não;"trim;map categories";not null;Despesa;Não;Sim;Não;Sim;principal classificação
+Visao_Contas_a_Pagar;Centro de Custo 1;center_name;text;Sim;Não;"trim;map synonyms";not null;Despesa;Não;Não;Não;Não;ex.: Banho&Tosa
+Visao_Contas_a_Pagar;Data de competência;date_competence;date;Sim;Não;parse dayfirst;not null;Despesa;Não;Sim;Não;Sim;usar para fechamento mensal
+Visao_Contas_a_Pagar;Data prevista;planned_date;date;Não;Não;parse dayfirst; ;Não;Não;Não;Não;Não;previsão de pagamento
+Visao_Contas_a_Pagar;Data de vencimento;due_date;date;Não;Não;parse dayfirst; ;Não;Não;Não;Não;Não;calcular prazo médio de pagamento
+Visao_Contas_a_Pagar;Data do último pagamento;payment_date;date;Não;Não;parse dayfirst; ;Não;Não;Não;Não;Não;registrar quando quitado
+Visao_Contas_a_Pagar;Valor original da parcela (R$);amount_original;numeric;Sim;Não;"parse decimal;abs(value)";not null;Não;Não;Não;Não;Não;transformar negativos em positivos
+Visao_Contas_a_Pagar;Valor pago da parcela (R$);amount_paid;numeric;Não;Não;"parse decimal;abs(value)";>=0;Não;Não;Não;Não;Não;0 se não pago
+Visao_Contas_a_Pagar;Valor total pago da parcela (R$);amount_total_paid;numeric;Não;Não;parse decimal;>=0;Não;Não;Não;Não;Não;valor com juros/multa/desconto
+Visao_Contas_a_Pagar;Valor da parcela em aberto (R$);amount_open;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;amount_original - amount_paid
+Visao_Contas_a_Pagar;Juros realizado (R$);interest_realized;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;juros já pagos
+Visao_Contas_a_Pagar;Multa realizado (R$);penalty_realized;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;multa já paga
+Visao_Contas_a_Pagar;Desconto realizado (R$);discount_realized;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;desconto concedido
+Visao_Contas_a_Pagar;Recorrência;recurrence;text;Não;No;trim; ;Não;Não;Não;Não;Não;ex.: mensal
+Visao_Contas_a_Pagar;Quantidade de recorrência;recurrence_count;integer;Não;No;parse int;>=0;Não;Não;Não;Não;Não;quantidade de parcelas
+Visao_Contas_a_Pagar;Situação;status;text;Sim;No;"trim;map values";not null;Despesa;Não;Sim;Não;Sim;ex.: Quitado
+Visao_Contas_a_Pagar;Forma de pagamento;payment_method;text;Não;No;trim; ;Não;Não;Não;Não;Não;ex.: Boleto
+Visao_Contas_a_Pagar;Conta bancária;payment_account;text;Não;No;trim; ;Não;Não;Não;Não;Não;conta usada no pagamento
+Visao_Contas_a_Pagar;Origem do lançamento;origin;text;Não;No;trim; ;Não;Não;Não;Não;Não;ex.: Compra
+Visao_Contas_a_Pagar;Observações;notes;text;Não;No;trim; ;Não;Não;Não;Não;Não;informações livres
+Visao_Contas_a_Pagar;Agendado;scheduled_flag;boolean;Não;No;parse boolean; ;Não;Não;Não;Não;Não;indica lançamento agendado
+Visao_Contas_a_Pagar;Descrição;detail;text;Não;No;trim; ;Não;Não;Não;Não;Não;detalhe adicional de origem
+Visao_Contas_a_Pagar;Juros previsto (R$);interest_planned;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;juros a pagar
+Visao_Contas_a_Pagar;Multa previsto (R$);penalty_planned;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;multa a pagar
+Visao_Contas_a_Pagar;Desconto previsto (R$);discount_planned;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;desconto previsto
+Visao_Contas_a_Pagar;Valor total da parcela em aberto (R$);amount_total_open;numeric;Não;Não;parse decimal;>=0;Não;Não;Não;Não;Não;parcelas em aberto
+Visao_Contas_a_Pagar;Valor na Categoria 1;amount_category;numeric;Sim;Não;parse decimal;>=0;Despesa;Não;Sim;Não;Sim;principal classificação
+Visao_Contas_a_Pagar;Valor no Centro de Custo 1;amount_category;numeric;Não;Não;parse decimal;>=0;Não;Não;Não;Não;Não;valor rateado

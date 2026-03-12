@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  etl-worker:
+    build: .
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./:/app
+    command: ["python", "-m", "etl.run", "--file", "/app/samples/vendas_sample.csv", "--upload_id", "999", "--table", "VendasProdutos", "--mapping", "/app/etl/mappings/mapping_v1.csv"]

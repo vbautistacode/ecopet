@@ -1,70 +1,45 @@
 # etl/transformers.py
 import pandas as pd
+from .utils import setup_logger
+import re
 
-def transform_finance(df):
-    df_fin = pd.DataFrame({
-        "mes": df["mes"],
-        "receita": df["receita"],
-        "despesa": df["despesa"],
-        "lucro": df["receita"] - (df["despesa"] + df["impostos"] + df["investimentos"]),
-        "impostos": df["impostos"],
-        "investimentos": df["investimentos"],
-        "caixa": df["caixa"],
-        "ebitda": df.get("ebitda", df["receita"] - df["despesa"]),
-        "roi": df.get("roi", (df["receita"] - df["despesa"]) / df["investimentos"].replace(0, 1))
-    })
-    return df_fin
+logger = setup_logger(__name__)
 
-def transform_sales(df):
-    df_sales = pd.DataFrame({
-        "mes": df["mes"],
-        "ticket_medio": df["receita"] / df["clientes"],
-        "taxa_conversao": df.get("taxa_conversao", 0.15),
-        "volume_vendas": df.get("volume_vendas", df["clientes"]),
-        "churn_rate": df.get("churn_rate", 0.05),
-        "ltv": df.get("ltv", (df["receita"] / df["clientes"]) * 12)
-    })
-    return df_sales
+def apply_mapping(df: pd.DataFrame, mapping: dict):
+    """Rename columns according to mapping dict (coluna_origem -> nome_destino)."""
+    # Only rename columns that exist
+    rename_map = {k: v for k, v in mapping.items() if k in df.columns}
+    df = df.rename(columns=rename_map)
+    return df
 
-def transform_ops(df):
-    df_ops = pd.DataFrame({
-        "mes": df["mes"],
-        "produtividade": df.get("produtividade", 95),
-        "custo_unidade": df["despesa"] / df["clientes"].replace(0, 1),
-        "tempo_entrega": df.get("tempo_entrega", 3.5),
-        "taxa_retrabalho": df.get("taxa_retrabalho", 0.02)
-    })
-    return df_ops
+def normalize_dates(df: pd.DataFrame, cols, dayfirst=True):
+    for c in cols:
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c], errors='coerce', dayfirst=dayfirst)
+    return df
 
-def transform_marketing(df):
-    df_mkt = pd.DataFrame({
-        "mes": df["mes"],
-        "cac": df.get("cac", 300),
-        "leads_gerados": df.get("leads_gerados", 200),
-        "taxa_engajamento": df.get("taxa_engajamento", 0.25)
-    })
-    return df_mkt
+def normalize_numbers(df: pd.DataFrame, cols, thousand='.', decimal=','):
+    for c in cols:
+        if c in df.columns:
+            s = df[c].astype(str).str.strip()
+            # remove thousand separators and replace decimal
+            if thousand:
+                s = s.str.replace(thousand, '', regex=False)
+            if decimal:
+                s = s.str.replace(decimal, '.', regex=False)
+            s = s.replace(r'^\s*$', None, regex=True)
+            df[c] = pd.to_numeric(s, errors='coerce')
+    return df
 
-def transform_clients(df):
-    df_cli = pd.DataFrame({
-        "mes": df["mes"],
-        "clientes_ativos": df["clientes"],
-        "taxa_retencao": df.get("taxa_retencao", 0.90),
-        "nps": df.get("nps", 75)
-    })
-    return df_cli
+def strip_non_digits_series(s):
+    return s.astype(str).str.replace(r'\D+', '', regex=True).replace(r'^\s*$', None, regex=True)
 
-# etl/transformers.py (exemplo de join receita+despesa)
-def build_financial_kpis(stg_receita, stg_despesa, stg_investimentos=None):
-    rec = stg_receita.groupby('mes', as_index=False)['valor'].sum().rename(columns={'valor':'receita'})
-    desp = stg_despesa.groupby('mes', as_index=False)['valor'].sum().rename(columns={'valor':'despesa'})
-    df = rec.merge(desp, on='mes', how='outer').fillna(0)
-    if stg_investimentos is not None:
-        inv = stg_investimentos.groupby('mes', as_index=False)['valor'].sum().rename(columns={'valor':'investimentos'})
-        df = df.merge(inv, on='mes', how='left').fillna({'investimentos':0})
-    else:
-        df['investimentos'] = 0
-    df['lucro'] = df['receita'] - (df['despesa'] + df['investimentos'])
-    df['ebitda'] = df.get('ebitda', df['receita'] - df['despesa'])
-    df['roi'] = (df['receita'] - df['despesa']) / df['investimentos'].replace({0: pd.NA})
-    return df/;
+def generate_product_code(df: pd.DataFrame, group_col='product_group', name_col='product_name', out_col='product_code'):
+    if out_col not in df.columns:
+        df[out_col] = (df.get(group_col, '').fillna('') + '|' + df.get(name_col, '').fillna('')).apply(
+            lambda x: hashlib_short(x))
+    return df
+
+def hashlib_short(s):
+    import hashlib
+    return hashlib.sha1(s.encode('utf-8')).hexdigest()[:12]

@@ -1,20 +1,43 @@
 # etl/utils.py
-import pandas as pd, unidecode, hashlib
-from datetime import datetime
+import uuid
+import hashlib
+import logging
+import os
+import csv
 
-def normalize_cols(cols):
-    return [unidecode.unidecode(c).strip().lower().replace(" ", "_").replace("-", "_") for c in cols]
+def generate_batch_id():
+    return str(uuid.uuid4())
 
-def safe_to_numeric(s):
-    return pd.to_numeric(s.astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce')
+def file_hash(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            h.update(chunk)
+    return h.hexdigest()
 
-def normalize_mes(col):
-    # retorna Timestamp com primeiro dia do mês
-    return pd.to_datetime(col, errors='coerce').dt.to_period('M').dt.to_timestamp()
+def setup_logger(name=__name__):
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        fmt = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+        handler.setFormatter(fmt)
+        logger.addHandler(handler)
+        logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+    return logger
 
-def row_hash(df):
-    return df.fillna("").astype(str).agg("||".join, axis=1).apply(lambda s: hashlib.md5(s.encode()).hexdigest())
-
-def safe_divide(a, b):
-    b = b.replace({0: pd.NA})
-    return a / b
+def load_mapping(path):
+    """
+    Load mapping CSV (semicolon separated) into list of dicts and mapping dict.
+    Returns: (rows, mapping_dict) where mapping_dict maps coluna_origem -> nome_destino
+    """
+    rows = []
+    mapping = {}
+    with open(path, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter=';')
+        for r in reader:
+            rows.append(r)
+            origem = r.get('coluna_origem')
+            destino = r.get('nome_destino')
+            if origem and destino:
+                mapping[origem.strip()] = destino.strip()
+    return rows, mapping

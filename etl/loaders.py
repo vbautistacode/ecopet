@@ -1,29 +1,29 @@
 # loaders.py -> load and normalize
-import pandas as pd, unidecode, hashlib, datetime as dt
+import pandas as pd
+from sqlalchemy import text
+from .utils import setup_logger
 
-def normalize_cols(cols):
-    return [unidecode.unidecode(c).strip().lower().replace(" ", "_") for c in cols]
+logger = setup_logger(__name__)
 
-def load_csv(path, parse_dates=None):
-    df = pd.read_csv(path, parse_dates=parse_dates)
-    df.columns = normalize_cols(df.columns)
-    df['source_file'] = path
-    df['loaded_at'] = pd.Timestamp.now()
-    # row hash
-    df['row_hash'] = df.astype(str).apply(lambda r: hashlib.md5("||".join(r).encode()).hexdigest(), axis=1)
-    return df
+def read_chunks(file_path: str, chunk_size: int = 100000, **pd_read_kwargs):
+    """Yield pandas DataFrame chunks from CSV/XLSX. Detect extension."""
+    ext = file_path.split('.')[-1].lower()
+    if ext in ('csv',):
+        for chunk in pd.read_csv(file_path, chunksize=chunk_size, dtype=str, low_memory=False, **pd_read_kwargs):
+            yield chunk
+    elif ext in ('xls','xlsx'):
+        # read full sheet in memory then chunk
+        df = pd.read_excel(file_path, dtype=str)
+        for i in range(0, len(df), chunk_size):
+            yield df.iloc[i:i+chunk_size]
+    else:
+        raise ValueError("Unsupported file extension: " + ext)
 
-# transform example: aggregate receita and despesa then join
-rec = load_csv("receita.csv")
-desp = load_csv("despesa.csv")
-
-rec['mes'] = pd.to_datetime(rec['mes']).dt.to_period('M').dt.to_timestamp()
-desp['mes'] = pd.to_datetime(desp['mes']).dt.to_period('M').dt.to_timestamp()
-
-rec_sum = rec.groupby('mes', as_index=False)['valor'].sum().rename(columns={'valor':'receita'})
-desp_sum = desp.groupby('mes', as_index=False)['valor'].sum().rename(columns={'valor':'despesa'})
-
-df = rec_sum.merge(desp_sum, on='mes', how='outer').fillna(0)
-df['lucro'] = df['receita'] - df['despesa']
-df['ebitda'] = df.get('ebitda', df['receita'] - df['despesa'])
-df['roi'] = (df['receita'] - df['despesa']) / df['investimentos'].replace({0: pd.NA})
+def load_to_staging(df, table_name: str, upload_id: int, import_batch_id: str, engine):
+    """Append df to staging table stg_{table_name} with upload/import metadata."""
+    df = df.copy()
+    df['upload_id'] = upload_id
+    df['import_batch_id'] = import_batch_id
+    # write in chunks to avoid memory spikes
+    df.to_sql(f"stg_{table_name}", engine, if_exists='append', index=False, method='multi', chunksize=10000)
+    logger.info("Loaded %d rows into stg_%s", len(df), table_name)
