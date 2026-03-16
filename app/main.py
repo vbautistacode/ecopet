@@ -96,33 +96,117 @@ if uploaded_files:
     write_marketing = getattr(writer_mod, "write_marketing", None)
     write_clients = getattr(writer_mod, "write_clients", None)
 
-    conn = get_connection()
+    # garantir logger local (se não existir no topo do arquivo)
     try:
-        for file in uploaded_files:
-            df_raw = load_csv(file) if file.name.lower().endswith(".csv") else load_excel(file)
+        logger  # se já existir, usa
+    except NameError:
+        from etl.utils import setup_logger
+        logger = setup_logger(__name__)
 
-            # Transformar (no tenant concept anymore)
-            fin = transform_finance(df_raw)
-            sales = transform_sales(df_raw)
-            ops = transform_ops(df_raw)
-            mkt = transform_marketing(df_raw)
-            clients = transform_clients(df_raw)
+    import hashlib, time, os
 
-            # write_* agora podem ser None se não existirem; cheque antes de chamar
-            if fin is not None and not fin.empty and write_finance:
-                write_finance(conn, fin)
-            if sales is not None and not sales.empty and write_sales:
-                write_sales(conn, sales)
-            if ops is not None and not ops.empty and write_ops:
-                write_ops(conn, ops)
-            if mkt is not None and not mkt.empty and write_marketing:
-                write_marketing(conn, mkt)
-            if clients is not None and not clients.empty and write_clients:
-                write_clients(conn, clients)
+    def _file_hash_bytes(file_obj):
+        try:
+            file_obj.seek(0)
+            h = hashlib.sha256(file_obj.read()).hexdigest()
+            file_obj.seek(0)
+            return h
+        except Exception:
+            return None
 
-        st.sidebar.success("✅ Dados carregados com sucesso!")
+    conn = get_connection()
+    import_batch_root = int(time.time())
+    try:
+        for idx, file in enumerate(uploaded_files, start=1):
+            file_name = file.name
+            try:
+                st.sidebar.info(f"Processando {file_name}...")
+                import_batch_id = f"{import_batch_root}_{idx}"
+                file_hash = _file_hash_bytes(file)
+
+                # leitura robusta: tenta utf-8, se falhar tenta latin-1
+                name_lower = file_name.lower()
+                df_raw = None
+                if name_lower.endswith(".csv"):
+                    try:
+                        df_raw = load_csv(file, sep=';')  # tenta padrão (detect/utf-8)
+                    except Exception as e:
+                        # se for erro de encoding, tenta latin-1
+                        import traceback
+                        tb = traceback.format_exc()
+                        logger.warning("load_csv falhou com utf-8 para %s: %s. Tentando latin-1", file_name, e)
+                        try:
+                            # reabrir/rewind e tentar com latin-1
+                            df_raw = load_csv(file, sep=';', encoding='latin-1')
+                        except Exception as e2:
+                            logger.exception("Falha ao ler %s com latin-1: %s", file_name, e2)
+                            raise
+                else:
+                    # excel
+                    try:
+                        df_raw = load_excel(file)
+                    except Exception:
+                        # algumas vezes excel com encoding estranho; log e rethrow
+                        logger.exception("Falha ao ler Excel %s", file_name)
+                        raise
+
+                # se leitura não produziu DataFrame, pular
+                if df_raw is None:
+                    st.sidebar.warning(f"Nenhum dado lido de {file_name}; pulando.")
+                    continue
+
+                # Transformações
+                fin = transform_finance(df_raw)
+                sales = transform_sales(df_raw)
+                ops = transform_ops(df_raw)
+                mkt = transform_marketing(df_raw)
+                clients = transform_clients(df_raw)
+
+                # Escrita: cheque se writer existe antes de chamar
+                if fin is not None and not fin.empty:
+                    if write_finance:
+                        write_finance(conn, fin, import_batch_id=import_batch_id, file_hash=file_hash, file_name=file_name)
+                    else:
+                        logger.warning("write_finance não disponível; pulando gravação de %s", file_name)
+
+                if sales is not None and not sales.empty:
+                    if write_sales:
+                        write_sales(conn, sales, import_batch_id=import_batch_id, file_hash=file_hash, file_name=file_name)
+                    else:
+                        logger.warning("write_sales não disponível; pulando gravação de %s", file_name)
+
+                if ops is not None and not ops.empty:
+                    if write_ops:
+                        write_ops(conn, ops, import_batch_id=import_batch_id, file_hash=file_hash, file_name=file_name)
+                    else:
+                        logger.warning("write_ops não disponível; pulando gravação de %s", file_name)
+
+                if mkt is not None and not mkt.empty:
+                    if write_marketing:
+                        write_marketing(conn, mkt, import_batch_id=import_batch_id, file_hash=file_hash, file_name=file_name)
+                    else:
+                        logger.warning("write_marketing não disponível; pulando gravação de %s", file_name)
+
+                if clients is not None and not clients.empty:
+                    if write_clients:
+                        write_clients(conn, clients, import_batch_id=import_batch_id, file_hash=file_hash, file_name=file_name)
+                    else:
+                        logger.warning("write_clients não disponível; pulando gravação de %s", file_name)
+
+                st.sidebar.success(f"✅ {file_name} processado")
+            except Exception as file_err:
+                st.sidebar.error(f"Erro ao processar {file_name}: {file_err}")
+                logger.exception("Erro ao processar arquivo %s", file_name)
+                # opcional: gravar em upload_errors via helper se disponível
+                try:
+                    if hasattr(writer_mod, "_write_upload_error"):
+                        writer_mod._write_upload_error(conn, import_batch_id, file_name, None, "unknown", "FILE_PROCESS_ERROR", str(file_err))
+                except Exception:
+                    logger.exception("Falha ao registrar upload_error para %s", file_name)
+                continue
+        st.sidebar.success("✅ Processamento dos uploads finalizado")
     except Exception as e:
-        st.sidebar.error(f"Erro ao processar uploads: {e}")
+        st.sidebar.error(f"Erro inesperado ao processar uploads: {e}")
         logger.exception("Erro no processamento de uploads")
     finally:
         try:
