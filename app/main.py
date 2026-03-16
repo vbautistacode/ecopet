@@ -85,7 +85,7 @@ if st.sidebar.button("🔄 Atualizar dados"):
 # Upload handling (transform + write)
 # -----------------------------
 if uploaded_files:
-    from etl.loaders import load_csv, load_excel
+    from etl.loaders import load_to_staging, read_chunks
     from etl.transformers import (
         transform_finance, transform_sales, transform_ops, transform_marketing, transform_clients
     )
