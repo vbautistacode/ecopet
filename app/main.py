@@ -65,7 +65,7 @@ st.sidebar.title("⚙️ Configurações")
 # tenant_id removed (no longer used). Keep as optional internal variable if needed.
 periodo = st.sidebar.selectbox(
     "📅 Período",
-    ["(Todos)", "(Acumulado)", "2025-01", "2025-02", "2025-03"],
+    ["(Todos)", "(Acumulado)"],
     index=0
 )
 
