@@ -85,41 +85,80 @@ if st.sidebar.button("🔄 Atualizar dados"):
 # Upload handling (transform + write)
 # -----------------------------
 if uploaded_files:
-    from etl.loaders import load_to_staging, read_chunks
+    from etl.loaders import load_to_staging, read_chunks, load_csv, load_excel
     from etl.transformers import (
         transform_finance, transform_sales, transform_ops, transform_marketing, transform_clients
     )
     from etl.writer import (
         write_finance, write_sales, write_ops, write_marketing, write_clients
     )
+    import hashlib, time
+
+    def _file_hash_bytes(file_obj):
+        try:
+            file_obj.seek(0)
+            h = hashlib.sha256(file_obj.read()).hexdigest()
+            file_obj.seek(0)
+            return h
+        except Exception:
+            return None
 
     conn = get_connection()
+    import_batch_root = int(time.time())  # base para gerar import_batch_id por arquivo
     try:
-        for file in uploaded_files:
-            df_raw = load_csv(file) if file.name.lower().endswith(".csv") else load_excel(file)
+        for idx, file in enumerate(uploaded_files, start=1):
+            file_name = file.name
+            try:
+                st.sidebar.info(f"Processando {file_name}...")
+                # metadados por arquivo
+                import_batch_id = f"{import_batch_root}_{idx}"
+                file_hash = _file_hash_bytes(file)
 
-            # Transformar (no tenant concept anymore)
-            fin = transform_finance(df_raw)
-            sales = transform_sales(df_raw)
-            ops = transform_ops(df_raw)
-            mkt = transform_marketing(df_raw)
-            clients = transform_clients(df_raw)
+                # leitura: streaming para arquivos grandes, wrapper para pequenos
+                name_lower = file_name.lower()
+                if name_lower.endswith(".csv"):
+                    # se arquivo for grande, prefira read_chunks + load_to_staging
+                    # aqui usamos wrapper que retorna DataFrame (ok para arquivos pequenos)
+                    df_raw = load_csv(file)
+                else:
+                    df_raw = load_excel(file)
 
-            # write_* now accept optional tenant_id; call without tenant_id
-            if fin is not None and not fin.empty:
-                write_finance(conn, fin)
-            if sales is not None and not sales.empty:
-                write_sales(conn, sales)
-            if ops is not None and not ops.empty:
-                write_ops(conn, ops)
-            if mkt is not None and not mkt.empty:
-                write_marketing(conn, mkt)
-            if clients is not None and not clients.empty:
-                write_clients(conn, clients)
+                # Transformações
+                fin = transform_finance(df_raw)
+                sales = transform_sales(df_raw)
+                ops = transform_ops(df_raw)
+                mkt = transform_marketing(df_raw)
+                clients = transform_clients(df_raw)
 
-        st.sidebar.success("✅ Dados carregados com sucesso!")
+                # Escrita: passe metadados para write_*
+                if fin is not None and not fin.empty:
+                    write_finance(conn, fin, import_batch_id=import_batch_id, file_hash=file_hash)
+                if sales is not None and not sales.empty:
+                    write_sales(conn, sales, import_batch_id=import_batch_id, file_hash=file_hash)
+                if ops is not None and not ops.empty:
+                    write_ops(conn, ops, import_batch_id=import_batch_id, file_hash=file_hash)
+                if mkt is not None and not mkt.empty:
+                    write_marketing(conn, mkt, import_batch_id=import_batch_id, file_hash=file_hash)
+                if clients is not None and not clients.empty:
+                    write_clients(conn, clients, import_batch_id=import_batch_id, file_hash=file_hash)
+
+                st.sidebar.success(f"✅ {file_name} processado")
+            except Exception as file_err:
+                # registra erro por arquivo e continua com os próximos
+                st.sidebar.error(f"Erro ao processar {file_name}: {file_err}")
+                logger.exception("Erro ao processar arquivo %s", file_name)
+                # opcional: gravar em upload_errors via writer helper
+                try:
+                    # write_upload_error(conn, import_batch_id, file_name, None, 'FILE_PROCESS_ERROR', str(file_err))
+                    pass
+                except Exception:
+                    pass
+                continue  # processa próximo arquivo
+
+        st.sidebar.success("✅ Todos os uploads processados (verificar mensagens acima)")
     except Exception as e:
-        st.sidebar.error(f"Erro ao processar uploads: {e}")
+        st.sidebar.error(f"Erro inesperado ao processar uploads: {e}")
+        logger.exception("Erro inesperado no loop de uploads")
     finally:
         try:
             conn.close()
