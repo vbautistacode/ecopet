@@ -1,0 +1,47 @@
+dashboard:
+  name: "Operações e Financeiro"
+  filters:
+    - date_range: {type: "date", default: "last_30_days"}
+    - filial: {type: "select", source: "dim_store"}
+    - product_group: {type: "select", source: "dim_product.group"}
+  panels:
+    - id: cashflow_overview
+      title: "Fluxo de Caixa Diário"
+      source: mv_cashflow_daily
+      charts:
+        - type: timeseries
+          metric: geracao_caixa_calc
+          label: "Geração de Caixa (R$)"
+          y_format: currency
+        - type: stacked_timeseries
+          metrics: [total_recebimentos, total_pagamentos]
+          labels: ["Recebimentos", "Pagamentos"]
+          y_format: currency
+        - type: table
+          columns: [day, filial, caixa, total_recebimentos, total_pagamentos, geracao_caixa_calc, pct_recebimentos_vs_closing, reconciliation_mismatch]
+    - id: revenue_overview
+      title: "Receita Diária"
+      source: mv_revenue_daily
+      charts:
+        - type: timeseries
+          metric: revenue_net
+          label: "Receita Líquida"
+          y_format: currency
+        - type: single_value
+          metric: revenue_net
+          label: "Receita (últimos 30 dias)"
+    - id: ticket_medio
+      title: "Ticket Médio Diário"
+      source: mv_ticket_medio_daily
+      charts:
+        - type: timeseries
+          metric: ticket_medio
+          label: "Ticket Médio"
+    - id: payables_summary
+      title: "Contas a Pagar"
+      source: mv_payables_summary
+      charts:
+        - type: bar
+          metric: total_amount_open
+          group_by: category_level1
+          label: "Saldo em Aberto por Categoria"

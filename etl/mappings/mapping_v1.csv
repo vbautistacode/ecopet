@@ -1,127 +1,128 @@
-﻿arquivo;coluna_origem;nome_destino;tipo_destino;obrigatório;chave_natural;transformação;validação;uso_DRE;uso_Financeiro;uso_Produtividade;uso_Vendas;Uso_Setores;observações;metric_group;metric_role;metric_calc;aggregation_group_by;calculo_ptbr
-fluxo_de_caixa_diario;Data;date;date;Sim;Sim;parse dayfirst;not null;Não;Sim;Não;Não;Não;usar para reconciliar caixa;cashflow_daily;measure;filter;date;
-fluxo_de_caixa_diario;Recebimentos (R$);cash_in;numeric;Sim;No;parse decimal;>=0;Não;Receita;Não;Não;Não;entradas do dia;cashflow_daily;measure;sum;date;soma total cash_in
-fluxo_de_caixa_diario;Pagamentos (R$);cash_out;numeric;Sim;No;parse decimal;>=0;Não;Despesa;Não;Não;Não;saídas do dia;cashflow_daily;;sum;date;soma total cash_out
-fluxo_de_caixa_diario;Transf. Entrada (R$);transfer_in;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;transferências recebidas;;;;;
-fluxo_de_caixa_diario;Transf. Saída (R$);transfer_out;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;transferências enviadas;;;;;
-fluxo_de_caixa_diario;Saldo Final (R$);closing_balance;numeric;Sim;No;parse decimal; ;Não;Saldo;Não;Não;Não;usar para conciliação diária;cashflow_daily;dimension;sum;date;percentual: soma total cash_in dividido por closing_balance vezes 100
-fluxo_de_caixa_diario;;Saldo do Período;;;;;;;;;;;;cashflow_daily;measure;sum;date;cash_in menos cash_out total
-fluxo_de_caixa_diario;;Fluxo Líquido;;;;;;;;;;;;cashflow_daily;measure;sum;date;cash_in menos cash_out do periodo filtrado
-fluxo_de_caixa_diario;;Saldo Médio;;;;;;;;;;;;cashflow_daily;measure;sum;date;cash_in menos cash_out total dividido por dias filtrados
-fluxo_de_caixa_diario;;Percentual de Recebimento;;;;;;;;;;;;cashflow_daily;measure;sum;date;percentual cash_in menos cash_out total dividido closing_balance vezes 100
-fluxo_de_caixa_diario;;Percentual de Pagamento;;;;;;;;;;;;cashflow_daily;measure;sum;date;percentual cash_out menos cash_in total dividido closing_balance vezes 100
-InteligenciaVendas_Animais;Código;codigo_animal;text;Sim;Sim;trim;not null;Não;Não;Não;Sim;Não;id do animal no sistema;pacient;dimension;none;;
-InteligenciaVendas_Animais;Nome;nome_animal;text;Sim;No;trim;not null;Não;Não;Não;Sim;Não;nome do animal;pacient;dimension;none;;contagem de nome_animal
-InteligenciaVendas_Animais;Espécie;especie;text;Sim;No;trim; ;Não;Não;Não;Sim;Não;Canina/Felina;pacient;dimension;sum;;contagem de especie
-InteligenciaVendas_Animais;Raça;raca;text;Sim;No;trim; ;Não;Não;Não;Sim;Não;informação de raça;pacient;dimension;none;;contagem de raca
-InteligenciaVendas_Animais;Nascimento;birth_date;date;Não;No;parse dayfirst; ;Não;Não;Não;Não;Não;usar para calcular idade;;;;;
-InteligenciaVendas_Animais;Idade;age;integer;Sim;No;trim; ;Não;Não;Não;Sim;Não;valor derivado de birth_date;pacient;dimension;avarage;client_name;média de age
-InteligenciaVendas_Animais;Status;status_animal;text;Não;No;trim; ;Não;Não;Não;Sim;Não;Ativo/Inativo;;;;;
-InteligenciaVendas_Animais;Nome cliente;client_name;text;Sim;No;trim; ;Não;Não;Não;Sim;Não;referência ao cliente;pacient;dimension;none;client_name;
-InteligenciaVendas_Animais;Código cliente;client_code;text;Sim;No;trim; ;Não;Não;Não;Sim;Não;usar para join com clientes;pacient;dimension;none;client_code;
-InteligenciaVendas_Animais;Pelagem;coat;text;Não;No;trim;;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Animais;Esterilização;sterilization;text;Não;No;trim;;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Animais;Sexo;sex_animal;text;Não;No;trim;;Não;Não;Não;Não;Não;;pacient;dimension;;;soma de sex_animal
-InteligenciaVendas_Animais;Pedigree;pedigree;text;Não;No;trim;;Não;Não;Não;Não;Não;;pacient;dimension;;;contagem de Pedigree
-InteligenciaVendas_Animais;Chip;chip_id;text;Não;Não;"parse decimal;abs(value)";;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Animais;Tags;tags_animal;text;Não;No;trim;;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Animais;Sexo;gender_client;text;Não;No;trim;;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Animais;Email;client_email;text;Não;No;trim;valid email;Não;Não;Não;Não;Não;para comunicações;;;;;
-InteligenciaVendas_Animais;Celular;client_phone;text;Não;No;trim; ;Não;Não;Não;Não;Não;telefone do cliente;;;;;
-InteligenciaVendas_Animais;CEP;client_cep;text;Sim;No;strip non-digits;valid CEP;Não;Não;Não;Sim;Não;código postal;pacient;dimension;none;;
-InteligenciaVendas_Animais;Endereço;client_address;text;Não;No;trim; ;Não;Não;Não;Não;Não;endereço principal;;;;;
-InteligenciaVendas_Animais;Número;client_number;text;Não;No;trim; ;Não;Não;Não;Não;Não;número endereço;;;;;
-InteligenciaVendas_Animais;Bairro;client_neighborhood;text;Não;No;trim; ;Não;Não;Não;Não;Não;complemento endereço;;;;;
-InteligenciaVendas_Animais;Aceita email?;accept_email;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Animais;Aceita SMS?;accept_sms;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Animais;Aceita campanha SMS?;accept_sms_camp;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Ficha;client_id;text;Sim;Sim;trim;not null;Não;Não;Não;Sim;Não;identificador do cliente;client;dimension;none;client_code;
-InteligenciaVendas_Clientes;Nome;client_name;text;Sim;No;trim;not null;Não;Não;Não;Sim;Não;nome do cliente;client;dimension;sum;client_name;contagem de client_name e filtro
-InteligenciaVendas_Clientes;CPF;client_cpf;text;Não;No;strip non-digits;valid CPF;Não;Não;Não;Não;Não;opcional para compliance;;;;;
-InteligenciaVendas_Clientes;Email;client_email;text;Não;No;trim;valid email;Não;Não;Não;Não;Não;para comunicações;;;;;
-InteligenciaVendas_Clientes;Celular;client_phone;text;Não;No;trim; ;Não;Não;Não;Não;Não;telefone do cliente;;;;;
-InteligenciaVendas_Clientes;Endereço;client_address;text;Não;No;trim; ;Não;Não;Não;Não;Não;endereço principal;;;;;
-InteligenciaVendas_Clientes;Bairro;client_neighborhood;text;Não;No;trim; ;Não;Não;Não;Não;Não;complemento endereço;;;;;
-InteligenciaVendas_Clientes;CEP;client_cep;text;Sim;No;strip non-digits;valid CEP;Não;Não;Não;Sim;Não;código postal;client;dimension;none;;
-InteligenciaVendas_Clientes;Inclusão;created_at;timestamptz;Não;No;parse dayfirst to ISO; ;Não;Não;Não;Não;Não;data de criação no sistema;;;;;
-InteligenciaVendas_Clientes;Atualização;updated_at;timestamptz;Não;No;parse dayfirst to ISO; ;Não;Não;Não;Não;Não;data da última atualização;;;;;
-InteligenciaVendas_Clientes;RG;client_rg;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Cidade;client_city;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;UF;client_state;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Classificação no ciclo de vida;lifecycle_classification;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Situação no ciclo de vida;lifecycle_status;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Comparecimento;attendance_status;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Tempo de relacionamento;relationship_duration;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Tipo de pessoa;person_type;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Profissão;profession;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Sexo;gender_client;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Origem;origin_source;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;NPS;nps_score;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Ranking ABC;abc_rank;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Último acesso ao SimplesPet;last_simplespet_access;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Tags;tags_client;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Animais vivos;animals_alive_count;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Aceita email?;accept_email;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Aceita SMS?;accept_sms;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-InteligenciaVendas_Clientes;Aceita campanha SMS?;accept_sms_camp;text;Não;No;trim; ;Não;Não;Não;Não;Não;;;;;;
-VendasProdutos;Data e Hora;sale_datetime;timestamptz;Sim;Sim;"parse dayfirst to ISO; set timezone";not null;Receita;Não;Sim;Sim;Sim;usar timezone do servidor;sales;dimension;filter;date;filtro
-VendasProdutos;Grupo;product_group;text;Sim;Não;"trim;upper";not null;Receita;Não;Sim;Sim;Sim;mapear para dim_product.group;sales;measure;sum;product_group;filtro
-VendasProdutos;Produto/Serviço;product_name;text;Sim;Sim;"normalize case;trim";not null;Receita;Não;Sim;Sim;Sim;gerar product_code se ausente;sales;dimension;sum;product_name;filtro
-VendasProdutos;Quantidade;quantity;numeric;Sim;Não;parse decimal;>0;Não;Não;Sim;Sim;Sim;usar para produtividade;sales;measure;sum;;soma total de quantity
-VendasProdutos;Líquido;revenue_net;numeric;Sim;Não;"parse decimal;abs(value)";not null;Receita;Não;Sim;Sim;Sim;valor líquido da venda;sales;measure;sum;;soma total de revenue_net
-VendasProdutos;%;percent_com;numeric;Não;Não;"parse decimal;abs(value)";;Não;Não;Não;Não;Não;percentual de comissão;;;;;
-VendasProdutos;Animal;pacient_name;text;Não;Não;trim;;Não;Não;Não;Não;Não;nome do animal;;;;;filtro
-VendasProdutos;Base da Comissão;comission_ground;numeric;Não;Não;parse decimal;>=0;Não;Não;Não;Não;Não;usar para produtividade por profissional;;;;;
-VendasProdutos;Bruto;gross_revenue;numeric;Não;Sim;parse decimal; ;Não;Não;Não;Não;Não;receita bruta de vendas;;;;;
-VendasProdutos;Celular;phone_client;text;Não;Não;"trim;map synonyms"; ;Não;Não;Não;Não;Não;contato telefonico;;;;;
-VendasProdutos;Cliente;client;text;Sim;Não;trim; ;Não;Não;Não;Sim;Não;nome de cliente;sales;measure;sum;client_name;filtro
-VendasProdutos;Comissão;comission;text;Não;Não;trim; ;Não;Não;Não;Não;Não;comissão;;;;;
-VendasProdutos;Desconto;revenue_discount;numeric;Não;Não;trim; ;Não;Não;Não;Não;Não;calculo fixo de comissão;;;;;
-VendasProdutos;Email;email_contact;text;Não;No;trim;>=0;Não;Não;Não;Não;Não;email de cliente;;;;;
-VendasProdutos;Espécie;type_animal;text;Não;Não;trim;>=0;Não;Não;Não;Não;Não;especie do animal;;;;;
-VendasProdutos;Funcionário;cost_total;numeric;Sim;Não;parse decimal;>=0;Não;Não;Sim;Não;Não;usar para produtividade por profissional;sales;measure;sum;product_name;filtro
-VendasProdutos;Status comissão;comission_status;numeric;Não;No;parse decimal; ;Não;Não;Não;Não;Não;usar para segmentação;;;;;
-VendasProdutos;Status da venda;sale_status;text;Sim;No;trim; ;Sim;Não;Sim;Não;Sim;Utilizar apenas Baixado;sales;measure;filter;;filtro
-VendasProdutos;Tipo do Item;item_type;text;Sim;No;trim; ;Não;Não;Sim;Não;Não;tipo de venda;sales;measure;sum;;filtro
-VendasProdutos;Valor Custo;cost_price;numeric;Não;Sim;trim; ;Não;Não;Não;Não;Não;usar como chave se presente;;;;;
-VendasProdutos;Valor Unitário;sale_price;numeric;Não;No;parse decimal; ;Não;Não;Não;Não;Não;quando separado da data;;;;;
-VendasProdutos;Venda;sales;numeric;Não;No;parse decimal; ;Não;Não;Não;Não;Não;ex.: un;;;;;
-VendasProdutos;Observações;notes_sale;text;Não;No;trim; ;Não;Não;Não;Não;Não;observações da venda;;;;;
-VendasProdutos;;Receita por Setor;;;;;;;;;;;;;;;;revenue_net filtrado por product_group
-VendasProdutos;;Receita por Serviço;;;;;;;;;;;;;;;;revenue_net filtrado por product_name
-VendasProdutos;;Quantidade por Setor;;;;;;;;;;;;;;;;quantity filtrado por product_group
-VendasProdutos;;Quantidade por Serviço;;;;;;;;;;;;;;;;quantity filtrado por product_name
-Visao_Contas_a_Pagar;Identificador do fornecedor;supplier_cnpj;text;Sim;Não;"strip non-digits;pad zeros";;Não;Não;Não;Não;Não;usar para agrupar fornecedor;costs;measure;none;;
-Visao_Contas_a_Pagar;Nome do fornecedor;supplier_name;text;Não;Não;"trim;normalize case";;Não;Não;Não;Não;Não;normalizar nomes;;;;;
-Visao_Contas_a_Pagar;Nota fiscal;invoice_ref;text;Sim;Não;trim; ;Não;Não;Não;Não;Não;usar em UNIQUE(invoice_ref;costs;measure;none;;
-Visao_Contas_a_Pagar;Código de referência;reference_code;text;Não;Não;trim; ;Não;Não;Não;Não;Não;referência interna;;;;;
-Visao_Contas_a_Pagar;Categoria 1;category_level1;text;Sim;Não;"trim;map categories";not null;Despesa;Não;Sim;Não;Sim;principal classificação;costs;measure;sum;cost_total;filtro
-Visao_Contas_a_Pagar;Centro de Custo 1;center_name;text;Sim;Não;"trim;map synonyms";not null;Despesa;Não;Não;Não;Não;ex.: Banho&Tosa;costs;measure;sum;product_group;filtro
-Visao_Contas_a_Pagar;Data de competência;date_competence;date;Sim;Não;parse dayfirst;not null;Despesa;Não;Sim;Não;Sim;usar para fechamento mensal;costs;dimension;filter;date;filtro
-Visao_Contas_a_Pagar;Data prevista;planned_date;date;Não;Não;parse dayfirst; ;Não;Não;Não;Não;Não;previsão de pagamento;;;;;
-Visao_Contas_a_Pagar;Data de vencimento;due_date;date;Não;Não;parse dayfirst; ;Não;Não;Não;Não;Não;calcular prazo médio de pagamento;;;;;
-Visao_Contas_a_Pagar;Data do último pagamento;payment_date;date;Não;Não;parse dayfirst; ;Não;Não;Não;Não;Não;registrar quando quitado;;;;;
-Visao_Contas_a_Pagar;Valor original da parcela (R$);amount_original;numeric;Sim;Não;"parse decimal;abs(value)";not null;Não;Não;Não;Não;Não;transformar negativos em positivos;costs;measure;sum;;soma total de amount_original
-Visao_Contas_a_Pagar;Valor pago da parcela (R$);amount_paid;numeric;Não;Não;"parse decimal;abs(value)";>=0;Não;Não;Não;Não;Não;0 se não pago;;;;;
-Visao_Contas_a_Pagar;Valor total pago da parcela (R$);amount_total_paid;numeric;Não;Não;parse decimal;>=0;Não;Não;Não;Não;Não;valor com juros/multa/desconto;;;;;
-Visao_Contas_a_Pagar;Valor da parcela em aberto (R$);amount_open;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;amount_original - amount_paid;;;;;
-Visao_Contas_a_Pagar;Juros realizado (R$);interest_realized;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;juros já pagos;;;;;
-Visao_Contas_a_Pagar;Multa realizado (R$);penalty_realized;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;multa já paga;;;;;
-Visao_Contas_a_Pagar;Desconto realizado (R$);discount_realized;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;desconto concedido;;;;;
-Visao_Contas_a_Pagar;Recorrência;recurrence;text;Não;No;trim; ;Não;Não;Não;Não;Não;ex.: mensal;;;;;
-Visao_Contas_a_Pagar;Quantidade de recorrência;recurrence_count;integer;Não;No;parse int;>=0;Não;Não;Não;Não;Não;quantidade de parcelas;;;;;
-Visao_Contas_a_Pagar;Situação;status;text;Sim;No;"trim;map values";not null;Despesa;Não;Sim;Não;Sim;ex.: Quitado;costs;measure;filter;;filtro
-Visao_Contas_a_Pagar;Forma de pagamento;payment_method;text;Não;No;trim; ;Não;Não;Não;Não;Não;ex.: Boleto;;;;;
-Visao_Contas_a_Pagar;Conta bancária;payment_account;text;Não;No;trim; ;Não;Não;Não;Não;Não;conta usada no pagamento;;;;;
-Visao_Contas_a_Pagar;Origem do lançamento;origin;text;Não;No;trim; ;Não;Não;Não;Não;Não;ex.: Compra;;;;;
-Visao_Contas_a_Pagar;Observações;notes;text;Não;No;trim; ;Não;Não;Não;Não;Não;informações livres;;;;;
-Visao_Contas_a_Pagar;Agendado;scheduled_flag;boolean;Não;No;parse boolean; ;Não;Não;Não;Não;Não;indica lançamento agendado;;;;;
-Visao_Contas_a_Pagar;Descrição;detail;text;Não;No;trim; ;Não;Não;Não;Não;Não;detalhe adicional de origem;;;;;
-Visao_Contas_a_Pagar;Juros previsto (R$);interest_planned;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;juros a pagar;;;;;
-Visao_Contas_a_Pagar;Multa previsto (R$);penalty_planned;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;multa a pagar;;;;;
-Visao_Contas_a_Pagar;Desconto previsto (R$);discount_planned;numeric;Não;No;parse decimal;>=0;Não;Não;Não;Não;Não;desconto previsto;;;;;
-Visao_Contas_a_Pagar;Valor total da parcela em aberto (R$);amount_total_open;numeric;Não;Não;parse decimal;>=0;Não;Não;Não;Não;Não;parcelas em aberto;;;;;
-Visao_Contas_a_Pagar;Valor na Categoria 1;amount_category;numeric;Sim;Não;parse decimal;>=0;Despesa;Não;Sim;Não;Sim;principal classificação;costs;measure;sum;;soma total de amount_category
-Visao_Contas_a_Pagar;Valor no Centro de Custo 1;amount_category;numeric;Não;Não;parse decimal;>=0;Não;Não;Não;Não;Não;valor rateado;;;;;
-Visao_Contas_a_Pagar;;Despesa por Categoria;;;;;;;;;;;;;;;;soma total de category_level1
-Visao_Contas_a_Pagar;;Despesa por Centro de Custo;;;;;;;;;;;;;;;;soma total de center_name
+"arquivo;coluna_origem;nome_destino;tipo_destino;obrigat�rio;natural_key_group;transform;validacao;metric_group;metric_role;metric_calc;aggregation_group_by;calculo_ptbr;tolerance"
+"fluxo_de_caixa_diario;Data;date;date;Sim;date;parse dayfirst;not null;cashflow_daily;dimension;none;date;usar para reconciliar caixa;"
+"fluxo_de_caixa_diario;Recebimentos (R$);cash_in;numeric(18,2);Sim;;parse decimal;>=0;cashflow_daily;measure;sum;date,filial,caixa;soma total cash_in;0.01"
+"fluxo_de_caixa_diario;Pagamentos (R$);cash_out;numeric(18,2);Sim;;parse decimal;>=0;cashflow_daily;measure;sum;date,filial,caixa;soma total cash_out;0.01"
+"fluxo_de_caixa_diario;Transf. Entrada (R$);transfer_in;numeric(18,2);N�o;;parse decimal;>=0;cashflow_daily;measure;sum;date,filial,caixa;transfer�ncias recebidas;0.01"
+"fluxo_de_caixa_diario;Transf. Sa�da (R$);transfer_out;numeric(18,2);N�o;;parse decimal;>=0;cashflow_daily;measure;sum;date,filial,caixa;transfer�ncias enviadas;0.01"
+"fluxo_de_caixa_diario;Saldo Final (R$);closing_balance;numeric(18,2);N�o;;parse decimal;>=0;cashflow_daily;dimension;none;date,filial,caixa;usar para concilia��o di�ria;0.01"
+"fluxo_de_caixa_diario;;saldo_periodo;numeric(18,2);N�o;;derived;>=0;cashflow_daily;measure;custom:COALESCE(SUM(cash_in),0)-COALESCE(SUM(cash_out),0);date,filial,caixa;cash_in menos cash_out total;0.01"
+"fluxo_de_caixa_diario;;fluxo_liquido;numeric(18,2);N�o;;derived;>=0;cashflow_daily;measure;custom:COALESCE(SUM(cash_in),0)-COALESCE(SUM(cash_out),0)+COALESCE(SUM(transfer_in),0)-COALESCE(SUM(transfer_out),0);date,filial,caixa;cash_in menos cash_out do periodo filtrado;0.01"
+"fluxo_de_caixa_diario;;saldo_medio;numeric(18,2);N�o;;derived;>=0;cashflow_daily;measure;custom:(COALESCE(SUM(cash_in),0)-COALESCE(SUM(cash_out),0))/NULLIF(COUNT(DISTINCT date),0);date,filial,caixa;cash_in menos cash_out total dividido por dias filtrados;0.01"
+"fluxo_de_caixa_diario;;percentual_recebimento;numeric(18,4);N�o;;derived;>=0;cashflow_daily;measure;custom:CASE WHEN COALESCE(MAX(closing_balance),0)=0 THEN NULL ELSE (COALESCE(SUM(cash_in),0)/NULLIF(MAX(closing_balance),0))*100 END;date,filial,caixa;percentual: soma total cash_in dividido por closing_balance vezes 100;0.01"
+"fluxo_de_caixa_diario;;percentual_pagamento;numeric(18,4);N�o;;derived;>=0;cashflow_daily;measure;custom:CASE WHEN COALESCE(MAX(closing_balance),0)=0 THEN NULL ELSE (COALESCE(SUM(cash_out),0)/NULLIF(MAX(closing_balance),0))*100 END;date,filial,caixa;percentual: soma total cash_out dividido por closing_balance vezes 100;0.01"
+"InteligenciaVendas_Animais;C�digo;codigo_animal;text;Sim;codigo_animal;trim;not null;pacient;dimension;none;codigo_animal;id do animal no sistema;"
+"InteligenciaVendas_Animais;Nome;nome_animal;text;Sim;codigo_animal;trim;not null;pacient;dimension;none;nome_animal;nome do animal;"
+"InteligenciaVendas_Animais;Esp�cie;especie;text;Sim;codigo_animal;trim;;pacient;dimension;none;especie;Canina/Felina;"
+"InteligenciaVendas_Animais;Ra�a;raca;text;Sim;codigo_animal;trim;;pacient;dimension;none;raca;informa��o de ra�a;"
+"InteligenciaVendas_Animais;Nascimento;birth_date;date;N�o;codigo_animal;parse dayfirst;;pacient;dimension;none;birth_date;usar para calcular idade;"
+"InteligenciaVendas_Animais;Idade;age;integer;N�o;codigo_animal;derive_from_birth_date;;pacient;measure;avg;client_code;m�dia de age;"
+"InteligenciaVendas_Animais;Status;status_animal;text;N�o;codigo_animal;trim;;pacient;dimension;none;status_animal;Ativo/Inativo;"
+"InteligenciaVendas_Animais;Nome cliente;client_name;text;Sim;client_code;trim;;pacient;dimension;none;client_name;refer�ncia ao cliente;"
+"InteligenciaVendas_Animais;C�digo cliente;client_code;text;Sim;client_code;trim;not null;pacient;dimension;none;client_code;usar para join com clientes;"
+"InteligenciaVendas_Animais;Pelagem;coat;text;N�o;codigo_animal;trim;;pacient;dimension;none;coat;"
+"InteligenciaVendas_Animais;Esteriliza��o;sterilization;text;N�o;codigo_animal;trim;;pacient;dimension;none;sterilization;"
+"InteligenciaVendas_Animais;Sexo;sex_animal;text;N�o;codigo_animal;trim;;pacient;dimension;none;sex_animal;"
+"InteligenciaVendas_Animais;Pedigree;pedigree;text;N�o;codigo_animal;trim;;pacient;dimension;none;pedigree;"
+"InteligenciaVendas_Animais;Chip;chip_id;text;N�o;codigo_animal;trim; ;pacient;dimension;none;chip_id;parse decimal;abs(value)"
+"InteligenciaVendas_Animais;Tags;tags_animal;text;N�o;codigo_animal;trim;;pacient;dimension;none;tags_animal;"
+"InteligenciaVendas_Animais;Sexo;gender_client;text;N�o;client_code;trim;;pacient;dimension;none;gender_client;"
+"InteligenciaVendas_Animais;Email;client_email;text;N�o;client_code;trim;valid email;pacient;dimension;none;client_email;para comunica��es"
+"InteligenciaVendas_Animais;Celular;client_phone;text;N�o;client_code;trim;;pacient;dimension;none;client_phone;telefone do cliente"
+"InteligenciaVendas_Animais;CEP;client_cep;text;Sim;client_code;strip non-digits;valid CEP;pacient;dimension;none;client_cep;c�digo postal;"
+"InteligenciaVendas_Animais;Endere�o;client_address;text;N�o;client_code;trim;;pacient;dimension;none;client_address;"
+"InteligenciaVendas_Animais;N�mero;client_number;text;N�o;client_code;trim;;pacient;dimension;none;client_number;"
+"InteligenciaVendas_Animais;Bairro;client_neighborhood;text;N�o;client_code;trim;;pacient;dimension;none;client_neighborhood;"
+"InteligenciaVendas_Animais;Aceita email?;accept_email;boolean;N�o;client_code;parse boolean;;pacient;dimension;none;accept_email;"
+"InteligenciaVendas_Animais;Aceita SMS?;accept_sms;boolean;N�o;client_code;parse boolean;;pacient;dimension;none;accept_sms;"
+"InteligenciaVendas_Animais;Aceita campanha SMS?;accept_sms_camp;boolean;N�o;client_code;parse boolean;;pacient;dimension;none;accept_sms_camp;"
+"InteligenciaVendas_Clientes;Ficha;client_id;text;Sim;client_id;trim;not null;client;dimension;none;client_id;identificador do cliente;"
+"InteligenciaVendas_Clientes;Nome;client_name;text;Sim;client_id;trim;not null;client;dimension;none;client_name;nome do cliente;"
+"InteligenciaVendas_Clientes;CPF;client_cpf;text;N�o;client_id;strip non-digits;valid CPF;client;dimension;none;client_cpf;opcional para compliance;"
+"InteligenciaVendas_Clientes;Email;client_email;text;N�o;client_id;trim;valid email;client;dimension;none;client_email;para comunica��es;"
+"InteligenciaVendas_Clientes;Celular;client_phone;text;N�o;client_id;trim;;client;dimension;none;client_phone;"
+"InteligenciaVendas_Clientes;Endere�o;client_address;text;N�o;client_id;trim;;client;dimension;none;client_address;"
+"InteligenciaVendas_Clientes;Bairro;client_neighborhood;text;N�o;client_id;trim;;client;dimension;none;client_neighborhood;"
+"InteligenciaVendas_Clientes;CEP;client_cep;text;Sim;client_id;strip non-digits;valid CEP;client;dimension;none;client_cep;c�digo postal;"
+"InteligenciaVendas_Clientes;Inclus�o;created_at;timestamptz;N�o;client_id;parse dayfirst to ISO;;client;dimension;none;created_at;data de cria��o no sistema;"
+"InteligenciaVendas_Clientes;Atualiza��o;updated_at;timestamptz;N�o;client_id;parse dayfirst to ISO;;client;dimension;none;updated_at;data da �ltima atualiza��o;"
+"InteligenciaVendas_Clientes;RG;client_rg;text;N�o;client_id;trim;;client;dimension;none;client_rg;"
+"InteligenciaVendas_Clientes;Cidade;client_city;text;N�o;client_id;trim;;client;dimension;none;client_city;"
+"InteligenciaVendas_Clientes;UF;client_state;text;N�o;client_id;trim;;client;dimension;none;client_state;"
+"InteligenciaVendas_Clientes;Classifica��o no ciclo de vida;lifecycle_classification;text;N�o;client_id;trim;;client;dimension;none;lifecycle_classification;"
+"InteligenciaVendas_Clientes;Situa��o no ciclo de vida;lifecycle_status;text;N�o;client_id;trim;;client;dimension;none;lifecycle_status;"
+"InteligenciaVendas_Clientes;Comparecimento;attendance_status;text;N�o;client_id;trim;;client;dimension;none;attendance_status;"
+"InteligenciaVendas_Clientes;Tempo de relacionamento;relationship_duration;text;N�o;client_id;trim;;client;dimension;none;relationship_duration;"
+"InteligenciaVendas_Clientes;Tipo de pessoa;person_type;text;N�o;client_id;trim;;client;dimension;none;person_type;"
+"InteligenciaVendas_Clientes;Profiss�o;profession;text;N�o;client_id;trim;;client;dimension;none;profession;"
+"InteligenciaVendas_Clientes;Sexo;gender_client;text;N�o;client_id;trim;;client;dimension;none;gender_client;"
+"InteligenciaVendas_Clientes;Origem;origin_source;text;N�o;client_id;trim;;client;dimension;none;origin_source;"
+"InteligenciaVendas_Clientes;NPS;nps_score;numeric(5,2);N�o;client_id;parse decimal;;client;measure;avg;client_id;nps score m�dio;"
+"InteligenciaVendas_Clientes;Ranking ABC;abc_rank;text;N�o;client_id;trim;;client;dimension;none;abc_rank;"
+"InteligenciaVendas_Clientes;�ltimo acesso ao SimplesPet;last_simplespet_access;timestamptz;N�o;client_id;parse dayfirst to ISO;;client;dimension;none;last_simplespet_access;"
+"InteligenciaVendas_Clientes;Tags;tags_client;text;N�o;client_id;trim;;client;dimension;none;tags_client;"
+"InteligenciaVendas_Clientes;Animais vivos;animals_alive_count;integer;N�o;client_id;parse int;;client;measure;sum;client_id;contagem de animais vivos;"
+"InteligenciaVendas_Clientes;Aceita email?;accept_email;boolean;N�o;client_id;parse boolean;;client;dimension;none;accept_email;"
+"InteligenciaVendas_Clientes;Aceita SMS?;accept_sms;boolean;N�o;client_id;parse boolean;;client;dimension;none;accept_sms;"
+"InteligenciaVendas_Clientes;Aceita campanha SMS?;accept_sms_camp;boolean;N�o;client_id;parse boolean;;client;dimension;none;accept_sms_camp;"
+"VendasProdutos;Data e Hora;sale_datetime;timestamptz;Sim;sale_datetime;parse dayfirst to ISO;not null;sales;dimension;none;date;usar timezone do servidor;"
+"VendasProdutos;Grupo;product_group;text;Sim;transaction_id;trim;not null;sales;dimension;none;product_group;mapear para dim_product.group;"
+"VendasProdutos;Produto/Servi�o;product_name;text;Sim;transaction_id;normalize case;not null;sales;dimension;none;product_name;gerar product_code se ausente;"
+"VendasProdutos;Quantidade;quantity;integer;Sim;transaction_id;parse int;>0;sales;measure;sum;date,product_name;soma total de quantity;0.01"
+"VendasProdutos;L�quido;revenue_net;numeric(18,2);Sim;transaction_id;parse decimal;>=0;sales;measure;sum;date;soma total de revenue_net;0.01"
+"VendasProdutos;% ;percent_com;numeric(6,4);N�o;transaction_id;parse decimal;>=0;sales;measure;avg;product_name;percentual de comiss�o m�dio;0.0001"
+"VendasProdutos;Animal;pacient_name;text;N�o;transaction_id;trim;;sales;dimension;none;pacient_name;nome do animal;"
+"VendasProdutos;Base da Comiss�o;comission_ground;numeric(18,2);N�o;transaction_id;parse decimal;>=0;sales;measure;sum;employee_code;usar para produtividade por profissional;0.01"
+"VendasProdutos;Bruto;gross_revenue;numeric(18,2);N�o;transaction_id;parse decimal;;sales;measure;sum;date;receita bruta de vendas;0.01"
+"VendasProdutos;Celular;phone_client;text;N�o;transaction_id;trim;;sales;dimension;none;phone_client;contato telefonico"
+"VendasProdutos;Cliente;client;text;N�o;client_code;trim;;sales;dimension;none;client;nome de cliente (texto)"
+"VendasProdutos;Comiss�o;comission;numeric(18,2);N�o;transaction_id;parse decimal;;sales;measure;sum;employee_code;valor de comiss�o;0.01"
+"VendasProdutos;Desconto;revenue_discount;numeric(18,2);N�o;transaction_id;parse decimal;;sales;measure;sum;date;desconto aplicado;0.01"
+"VendasProdutos;Email;email_contact;text;N�o;transaction_id;trim;valid email;sales;dimension;none;email_contact;email de cliente"
+"VendasProdutos;Esp�cie;type_animal;text;N�o;transaction_id;trim;;sales;dimension;none;type_animal;especie do animal"
+"VendasProdutos;Funcion�rio;employee_code;text;N�o;transaction_id;trim;;sales;dimension;none;employee_code;identificador do vendedor"
+"VendasProdutos;Cost Total;cost_total;numeric(18,2);N�o;transaction_id;parse decimal;>=0;sales;measure;sum;employee_code;usar para produtividade por profissional;0.01"
+"VendasProdutos;Status comiss�o;comission_status;text;N�o;transaction_id;trim;;sales;dimension;none;comission_status;status da comiss�o"
+"VendasProdutos;Status da venda;sale_status;text;Sim;transaction_id;trim;not null;sales;dimension;none;sale_status;Utilizar apenas Baixado"
+"VendasProdutos;Tipo do Item;item_type;text;Sim;transaction_id;trim;not null;sales;dimension;none;item_type;tipo de venda"
+"VendasProdutos;Valor Custo;cost_price;numeric(18,2);N�o;transaction_id;parse decimal;;sales;measure;sum;product_name;usar como chave se presente;0.01"
+"VendasProdutos;Valor Unit�rio;sale_price;numeric(18,2);N�o;transaction_id;parse decimal;;sales;measure;avg;product_name;pre�o unit�rio m�dio;0.01"
+"VendasProdutos;Venda;sales;numeric(18,2);N�o;transaction_id;parse decimal;;sales;measure;sum;date;valor total da linha;0.01"
+"VendasProdutos;Observa��es;notes_sale;text;N�o;transaction_id;trim;;sales;dimension;none;notes_sale;observa��es da venda"
+"VendasProdutos;;revenue_by_sector;numeric(18,2);N�o;;derived;;sales;measure;custom:SUM(revenue_net) FILTER (WHERE product_group IS NOT NULL);product_group;revenue_net filtrado por product_group;0.01"
+"VendasProdutos;;revenue_by_service;numeric(18,2);N�o;;derived;;sales;measure;custom:SUM(revenue_net) FILTER (WHERE product_name IS NOT NULL);product_name;revenue_net filtrado por product_name;0.01"
+"VendasProdutos;;quantity_by_sector;integer;N�o;;derived;;sales;measure;custom:SUM(quantity) FILTER (WHERE product_group IS NOT NULL);product_group;quantity filtrado por product_group;0.01"
+"VendasProdutos;;quantity_by_service;integer;N�o;;derived;;sales;measure;custom:SUM(quantity) FILTER (WHERE product_name IS NOT NULL);product_name;quantity filtrado por product_name;0.01"
+"Visao_Contas_a_Pagar;Identificador do fornecedor;supplier_cnpj;text;Sim;supplier_cnpj;strip non-digits;not null;costs;dimension;none;supplier_cnpj;usar para agrupar fornecedor;"
+"Visao_Contas_a_Pagar;Nome do fornecedor;supplier_name;text;N�o;supplier_cnpj;trim; ;costs;dimension;none;supplier_name;normalizar nomes;"
+"Visao_Contas_a_Pagar;Nota fiscal;invoice_ref;text;Sim;invoice_ref,supplier_cnpj;trim;not null;costs;dimension;none;invoice_ref;usar em UNIQUE(invoice_ref,supplier_cnpj);"
+"Visao_Contas_a_Pagar;C�digo de refer�ncia;reference_code;text;N�o;invoice_ref;trim;;costs;dimension;none;reference_code;refer�ncia interna;"
+"Visao_Contas_a_Pagar;Categoria 1;category_level1;text;Sim;invoice_ref,supplier_cnpj;trim;not null;costs;dimension;none;category_level1;principal classifica��o;"
+"Visao_Contas_a_Pagar;Centro de Custo 1;center_name;text;Sim;invoice_ref,supplier_cnpj;trim;not null;costs;dimension;none;center_name;ex.: Banho&Tosa;"
+"Visao_Contas_a_Pagar;Data de compet�ncia;date_competence;date;Sim;invoice_ref,supplier_cnpj;parse dayfirst;not null;costs;dimension;none;date_competence;usar para fechamento mensal;"
+"Visao_Contas_a_Pagar;Data prevista;planned_date;date;N�o;invoice_ref;parse dayfirst;;costs;dimension;none;planned_date;previs�o de pagamento;"
+"Visao_Contas_a_Pagar;Data de vencimento;due_date;date;N�o;invoice_ref;parse dayfirst;;costs;dimension;none;due_date;calcular prazo m�dio de pagamento;"
+"Visao_Contas_a_Pagar;Data do �ltimo pagamento;payment_date;date;N�o;invoice_ref;parse dayfirst;;costs;dimension;none;payment_date;registrar quando quitado;"
+"Visao_Contas_a_Pagar;Valor original da parcela (R$);amount_original;numeric(18,2);Sim;invoice_ref,supplier_cnpj;parse decimal;>=0;costs;measure;sum;date;soma total de amount_original;0.01"
+"Visao_Contas_a_Pagar;Valor pago da parcela (R$);amount_paid;numeric(18,2);N�o;invoice_ref,supplier_cnpj;parse decimal;>=0;costs;measure;sum;date;valor pago (0 se n�o pago);0.01"
+"Visao_Contas_a_Pagar;Valor total pago da parcela (R$);amount_total_paid;numeric(18,2);N�o;invoice_ref,supplier_cnpj;parse decimal;>=0;costs;measure;sum;date;valor com juros/multa/desconto;0.01"
+"Visao_Contas_a_Pagar;Valor da parcela em aberto (R$);amount_open;numeric(18,2);N�o;invoice_ref,supplier_cnpj;parse decimal;>=0;costs;measure;sum;date;amount_original - amount_paid;0.01"
+"Visao_Contas_a_Pagar;Juros realizado (R$);interest_realized;numeric(18,2);N�o;invoice_ref;parse decimal;>=0;costs;measure;sum;date;juros j� pagos;0.01"
+"Visao_Contas_a_Pagar;Multa realizado (R$);penalty_realized;numeric(18,2);N�o;invoice_ref;parse decimal;>=0;costs;measure;sum;date;multa j� paga;0.01"
+"Visao_Contas_a_Pagar;Desconto realizado (R$);discount_realized;numeric(18,2);N�o;invoice_ref;parse decimal;>=0;costs;measure;sum;date;desconto concedido;0.01"
+"Visao_Contas_a_Pagar;Recorr�ncia;recurrence;text;N�o;invoice_ref;trim;;costs;dimension;none;recurrence;ex.: mensal;"
+"Visao_Contas_a_Pagar;Quantidade de recorr�ncia;recurrence_count;integer;N�o;invoice_ref;parse int;>=0;costs;measure;sum;invoice_ref;quantidade de parcelas;0.01"
+"Visao_Contas_a_Pagar;Situa��o;status;text;Sim;invoice_ref;trim;not null;costs;dimension;none;status;ex.: Quitado;"
+"Visao_Contas_a_Pagar;Forma de pagamento;payment_method;text;N�o;invoice_ref;trim;;costs;dimension;none;payment_method;ex.: Boleto;"
+"Visao_Contas_a_Pagar;Conta banc�ria;payment_account;text;N�o;invoice_ref;trim;;costs;dimension;none;payment_account;conta usada no pagamento;"
+"Visao_Contas_a_Pagar;Origem do lan�amento;origin;text;N�o;invoice_ref;trim;;costs;dimension;none;origin;ex.: Compra;"
+"Visao_Contas_a_Pagar;Observa��es;notes;text;N�o;invoice_ref;trim;;costs;dimension;none;notes;informa��es livres;"
+"Visao_Contas_a_Pagar;Agendado;scheduled_flag;boolean;N�o;invoice_ref;parse boolean;;costs;dimension;none;scheduled_flag;indica lan�amento agendado;"
+"Visao_Contas_a_Pagar;Descri��o;detail;text;N�o;invoice_ref;trim;;costs;dimension;none;detail;detalhe adicional de origem;"
+"Visao_Contas_a_Pagar;Juros previsto (R$);interest_planned;numeric(18,2);N�o;invoice_ref;parse decimal;>=0;costs;measure;sum;date;juros a pagar;0.01"
+"Visao_Contas_a_Pagar;Multa previsto (R$);penalty_planned;numeric(18,2);N�o;invoice_ref;parse decimal;>=0;costs;measure;sum;date;multa a pagar;0.01"
+"Visao_Contas_a_Pagar;Desconto previsto (R$);discount_planned;numeric(18,2);N�o;invoice_ref;parse decimal;>=0;costs;measure;sum;date;desconto previsto;0.01"
+"Visao_Contas_a_Pagar;Valor total da parcela em aberto (R$);amount_total_open;numeric(18,2);N�o;invoice_ref;parse decimal;>=0;costs;measure;sum;date;parcelas em aberto;0.01"
+"Visao_Contas_a_Pagar;Valor na Categoria 1;amount_category;numeric(18,2);Sim;invoice_ref,supplier_cnpj;parse decimal;>=0;costs;measure;sum;category_level1;soma total de amount_category;0.01"
+"Visao_Contas_a_Pagar;Valor no Centro de Custo 1;amount_category_center;numeric(18,2);N�o;invoice_ref;parse decimal;>=0;costs;measure;sum;center_name;valor rateado;0.01"
+"Visao_Contas_a_Pagar;;expense_by_category;numeric(18,2);N�o;;derived;;costs;measure;custom:SUM(amount_category);category_level1;Despesa por Categoria;0.01"
+"Visao_Contas_a_Pagar;;expense_by_center;numeric(18,2);N�o;;derived;;costs;measure;custom:SUM(amount_category_center);center_name;Despesa por Centro de Custo;0.01"
