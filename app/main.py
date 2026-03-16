@@ -92,7 +92,7 @@ if uploaded_files:
     from etl.writer import (
         write_finance, write_sales, write_ops, write_marketing, write_clients
     )
-    import hashlib, time
+    import hashlib, time, os
 
     def _file_hash_bytes(file_obj):
         try:
@@ -103,48 +103,70 @@ if uploaded_files:
         except Exception:
             return None
 
+    # mapeamento nome arquivo -> função writer / table
+    FILE_MAP = {
+        "fluxo_de_caixa_diario.csv": {"writer": write_finance, "transform": transform_finance, "stg_table": "cashflow_daily"},
+        "inteligenciavendas_animais.csv": {"writer": write_clients, "transform": transform_clients, "stg_table": "pacient"},
+        "inteligenciavendas_clientes.csv": {"writer": write_clients, "transform": transform_clients, "stg_table": "client"},
+        "vendasprodutos.csv": {"writer": write_sales, "transform": transform_sales, "stg_table": "sales"},
+        "visao_contas_a_pagar.xlsx": {"writer": write_ops, "transform": transform_ops, "stg_table": "payables"},
+    }
+
     conn = get_connection()
-    import_batch_root = int(time.time())  # base para gerar import_batch_id por arquivo
+    import_batch_root = int(time.time())
     try:
         for idx, file in enumerate(uploaded_files, start=1):
             file_name = file.name
+            key = file_name.lower()
             try:
                 st.sidebar.info(f"Processando {file_name}...")
-                # metadados por arquivo
                 import_batch_id = f"{import_batch_root}_{idx}"
                 file_hash = _file_hash_bytes(file)
 
-                # leitura: streaming para arquivos grandes, wrapper para pequenos
-                name_lower = file_name.lower()
-                if name_lower.endswith(".csv"):
-                    # se arquivo for grande, prefira read_chunks + load_to_staging
-                    # aqui usamos wrapper que retorna DataFrame (ok para arquivos pequenos)
-                    df_raw = load_csv(file)
+                # localizar mapping do arquivo (nome padronizado)
+                map_key = key
+                # normalizar nomes com/sem acentos ou espaços se necessário
+                meta = FILE_MAP.get(map_key)
+                if meta is None:
+                    st.sidebar.warning(f"Ignorado: arquivo {file_name} não corresponde a um dos 5 esperados.")
+                    continue
+
+                # leitura: se arquivo grande, usar streaming
+                # heurística: se UploadedFile.size disponível e > 10MB, usar chunks
+                use_chunks = False
+                try:
+                    size = getattr(file, "size", None)
+                    if size and int(size) > 10 * 1024 * 1024:
+                        use_chunks = True
+                except Exception:
+                    pass
+
+                if use_chunks and key.endswith(".csv"):
+                    # streaming: inserir direto em staging por chunks
+                    for chunk in read_chunks(file, chunk_size=100000, sep=';'):
+                        # aplicar transform por chunk se quiser, ou gravar bruto e transformar depois
+                        # aqui gravamos bruto em staging e deixamos writer cuidar da promoção
+                        load_to_staging(chunk, meta["stg_table"], upload_id=idx, import_batch_id=import_batch_id, engine=conn)
+                    st.sidebar.info(f"{file_name} carregado em staging por chunks.")
+                    # opcional: chamar writer/promoter que consome staging para promover a fact
+                    meta["writer"](conn, None, import_batch_id=import_batch_id, file_hash=file_hash)
                 else:
-                    df_raw = load_excel(file)
+                    # leitura completa (pequenos arquivos)
+                    if key.endswith(".csv"):
+                        df_raw = load_csv(file, sep=';')
+                    else:
+                        df_raw = load_excel(file)
 
-                # Transformações
-                fin = transform_finance(df_raw)
-                sales = transform_sales(df_raw)
-                ops = transform_ops(df_raw)
-                mkt = transform_marketing(df_raw)
-                clients = transform_clients(df_raw)
+                    # transformar
+                    df_transformed = meta["transform"](df_raw)
 
-                # Escrita: passe metadados para write_*
-                if fin is not None and not fin.empty:
-                    write_finance(conn, fin, import_batch_id=import_batch_id, file_hash=file_hash)
-                if sales is not None and not sales.empty:
-                    write_sales(conn, sales, import_batch_id=import_batch_id, file_hash=file_hash)
-                if ops is not None and not ops.empty:
-                    write_ops(conn, ops, import_batch_id=import_batch_id, file_hash=file_hash)
-                if mkt is not None and not mkt.empty:
-                    write_marketing(conn, mkt, import_batch_id=import_batch_id, file_hash=file_hash)
-                if clients is not None and not clients.empty:
-                    write_clients(conn, clients, import_batch_id=import_batch_id, file_hash=file_hash)
-
+                    # escrever com metadados
+                    if df_transformed is not None and not df_transformed.empty:
+                        meta["writer"](conn, df_transformed, import_batch_id=import_batch_id, file_hash=file_hash)
+                    else:
+                        st.sidebar.info(f"Nenhum registro válido em {file_name} após transformação.")
                 st.sidebar.success(f"✅ {file_name} processado")
             except Exception as file_err:
-                # registra erro por arquivo e continua com os próximos
                 st.sidebar.error(f"Erro ao processar {file_name}: {file_err}")
                 logger.exception("Erro ao processar arquivo %s", file_name)
                 # opcional: gravar em upload_errors via writer helper
@@ -153,9 +175,8 @@ if uploaded_files:
                     pass
                 except Exception:
                     pass
-                continue  # processa próximo arquivo
-
-        st.sidebar.success("✅ Todos os uploads processados (verificar mensagens acima)")
+                continue
+        st.sidebar.success("✅ Processamento dos uploads finalizado")
     except Exception as e:
         st.sidebar.error(f"Erro inesperado ao processar uploads: {e}")
         logger.exception("Erro inesperado no loop de uploads")
