@@ -25,19 +25,40 @@ def setup_logger(name=__name__):
         logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
     return logger
 
-def load_mapping(path):
+import csv
+from typing import Tuple, Dict
+import io
+
+def load_mapping(path: str, sep: str = ';') -> Tuple[list, dict]:
     """
-    Load mapping CSV (semicolon separated) into list of dicts and mapping dict.
-    Returns: (rows, mapping_dict) where mapping_dict maps coluna_origem -> nome_destino
+    Carrega mapping CSV e retorna (rows_list, mapping_dict).
+    Tenta utf-8, depois latin-1; em último caso lê com errors='replace'.
     """
-    rows = []
+    def _read_with_encoding(enc):
+        with open(path, 'r', encoding=enc, errors='strict') as f:
+            reader = csv.DictReader(f, delimiter=sep)
+            rows = [r for r in reader]
+            return rows
+
+    # 1) try utf-8
+    try:
+        rows = _read_with_encoding('utf-8')
+    except UnicodeDecodeError:
+        # 2) try latin-1 / cp1252
+        try:
+            rows = _read_with_encoding('latin-1')
+        except UnicodeDecodeError:
+            # 3) fallback: replace invalid chars to avoid crash
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                reader = csv.DictReader(f, delimiter=sep)
+                rows = [r for r in reader]
+
+    # build mapping dict coluna_origem -> nome_destino (ignore empty)
     mapping = {}
-    with open(path, newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter=';')
-        for r in reader:
-            rows.append(r)
-            origem = r.get('coluna_origem')
-            destino = r.get('nome_destino')
-            if origem and destino:
-                mapping[origem.strip()] = destino.strip()
+    for r in rows:
+        src = (r.get('coluna_origem') or '').strip()
+        tgt = (r.get('nome_destino') or '').strip()
+        if src and tgt:
+            mapping[src] = tgt
+
     return rows, mapping
