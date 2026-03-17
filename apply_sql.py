@@ -62,7 +62,7 @@ def main():
         try:
             print(f"[{i}/{len(statements)}] Executando statement (primeiros 120 chars):\n{stmt[:120]!r}\n")
             # cada with engine.begin() cria e commita uma transação separada
-            with engine.begin() as conn:
+            with connection_context(engine) as conn:
                 conn.execute(text(stmt))
             print(f"[{i}] OK\n")
         except Exception as e:

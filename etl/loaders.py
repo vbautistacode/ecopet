@@ -174,10 +174,8 @@ def load_to_staging(df: pd.DataFrame, table_name: str, upload_id: Union[int, str
     df['import_batch_id'] = import_batch_id
     try:
         from etl.utils import connection_context
-
         with connection_context(engine) as conn:
-            df.to_sql(tmp_table, conn, if_exists='replace', index=False, schema="public")
-
+            df.to_sql(f"stg_{table_name}", conn, if_exists=if_exists, index=False, method='multi', chunksize=chunksize, schema="public")
         logger.info("Loaded %d rows into stg_%s", len(df), table_name)
         return len(df)
     except Exception:

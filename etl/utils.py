@@ -8,8 +8,11 @@ import csv
 import re
 import contextlib
 from datetime import datetime
-from sqlalchemy.engine import Engine, Connection
 from typing import Tuple, Dict, List, Optional, Any
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine as SAEngine
+
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # -------------------------
 # Identificadores SQL seguros
@@ -100,24 +103,56 @@ def now_iso() -> str:
 @contextlib.contextmanager
 def connection_context(engine_or_conn: Any):
     """
-    Context manager que aceita Engine, SQLAlchemy Connection ou raw DBAPI connection.
-    Retorna um objeto que pode ser usado para executar SQL (conn.execute(...)).
-    Garante commit/rollback quando aplicável.
+    Context manager que aceita:
+      - SQLAlchemy Engine (tem .begin())
+      - SQLAlchemy Connection (objeto com .execute)
+      - psycopg.Connection (psycopg v3) ou raw DBAPI
+    Retorna um objeto compatível com pandas.to_sql (SQLAlchemy Connection) ou com .execute.
     """
-    # SQLAlchemy Engine (has begin)
+    # 1) SQLAlchemy Engine (has begin)
     if hasattr(engine_or_conn, "begin") and callable(getattr(engine_or_conn, "begin")):
         with engine_or_conn.begin() as conn:
             yield conn
         return
 
-    # SQLAlchemy Connection (some environments expose Connection object with begin)
-    if hasattr(engine_or_conn, "connection") and callable(getattr(engine_or_conn, "connection")):
-        # treat as Engine-like
-        with engine_or_conn.connection() as conn:
-            yield conn
+    # 2) SQLAlchemy Connection-like (already a Connection object)
+    if hasattr(engine_or_conn, "execute") and hasattr(engine_or_conn, "closed") if hasattr(engine_or_conn, "closed") else True:
+        # yield as-is (no transaction control)
+        yield engine_or_conn
         return
 
-    # Raw DBAPI connection (has cursor, commit, rollback)
+    # 3) psycopg.Connection (psycopg v3) or other DBAPI connection
+    # pandas.to_sql does NOT accept raw DBAPI connections, so create a temporary SQLAlchemy Engine
+    try:
+        import psycopg
+        is_psycopg_conn = isinstance(engine_or_conn, psycopg.Connection)
+    except Exception:
+        is_psycopg_conn = False
+
+    if is_psycopg_conn:
+        # prefer DATABASE_URL env var; se não existir, tentar extrair dsn do objeto
+        url = DATABASE_URL
+        if not url:
+            try:
+                # psycopg.Connection.dsn may contain connection string; fallback best-effort
+                url = engine_or_conn.dsn
+            except Exception:
+                url = None
+        if not url:
+            raise ValueError("DATABASE_URL não configurado; não é possível criar Engine a partir de psycopg.Connection")
+
+        temp_engine = create_engine(url, pool_pre_ping=True)
+        try:
+            with temp_engine.begin() as conn:
+                yield conn
+        finally:
+            try:
+                temp_engine.dispose()
+            except Exception:
+                pass
+        return
+
+    # 4) raw DBAPI connection (has cursor/commit)
     if hasattr(engine_or_conn, "cursor") and hasattr(engine_or_conn, "commit"):
         try:
             yield engine_or_conn
@@ -132,10 +167,4 @@ def connection_context(engine_or_conn: Any):
                 pass
         return
 
-    # Fallback: object that supports execute but no transaction control
-    if hasattr(engine_or_conn, "execute"):
-        # no transaction semantics available; yield as-is
-        yield engine_or_conn
-        return
-
-    raise ValueError("Objeto passado não é um Engine/Connection válido")
+    raise ValueError("Objeto passado não é um Engine/Connection/DBAPI/psycopg válido")

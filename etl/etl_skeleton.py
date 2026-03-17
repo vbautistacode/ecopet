@@ -123,7 +123,7 @@ def load_csv_to_staging(file_path: str, mapping: List[Dict[str, Any]], stg_table
     # grava em staging usando pandas.to_sql com conexão (evita mismatch de paramstyle)
     # usa schema public e append por padrão
     try:
-        with engine.begin() as conn:
+        with connection_context(engine) as conn:
             # pandas to_sql aceita Connection
             df.to_sql(stg_table, conn, if_exists="append", index=False, method="multi", schema="public")
         return len(df)
@@ -133,7 +133,7 @@ def load_csv_to_staging(file_path: str, mapping: List[Dict[str, Any]], stg_table
         total = 0
         for start in range(0, len(df), batch_size):
             chunk = df.iloc[start:start+batch_size]
-            with engine.begin() as conn:
+            with connection_context(engine) as conn:
                 chunk.to_sql(stg_table, conn, if_exists="append", index=False, method="multi", schema="public")
             total += len(chunk)
         return total
@@ -181,7 +181,7 @@ def promote_cashflow(import_batch_id: str, engine: Optional[Engine] = None) -> N
       imported_at = now();
     """)
 
-    with engine.begin() as conn:
+    with connection_context(engine) as conn:
         conn.execute(agg_sql, {"import_batch_id": import_batch_id})
 
 # -------------------------

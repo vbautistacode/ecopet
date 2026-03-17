@@ -31,7 +31,7 @@ def _write_upload_error(engine: Engine, import_batch_id: str, file_name: str, li
         "raw_value": raw_value
     }
     try:
-        with engine.begin() as conn:
+        with connection_context(engine) as conn:
             conn.execute(text(sql), params)
     except Exception:
         logger.exception("Falha ao gravar upload_error para import_batch_id=%s file=%s", import_batch_id, file_name)
@@ -46,7 +46,7 @@ def record_upload_result(engine: Engine, upload_id: int, stats: Dict[str, Any]) 
       WHERE upload_id = :upload_id
     """)
     try:
-        with engine.begin() as conn:
+        with connection_context(engine) as conn:
             conn.execute(stmt, {
                 'row_count': stats.get('rows_read', 0),
                 'status': stats.get('status', 'processed'),
@@ -66,7 +66,7 @@ def upsert_fact_payables(engine: Engine, df: pd.DataFrame) -> None:
     """
     tmp = "tmp_payables"
     try:
-        with engine.begin() as conn:
+        with connection_context(engine) as conn:
             df.to_sql(tmp, conn, if_exists='replace', index=False, method='multi', chunksize=10000)
             upsert_sql = f"""
             INSERT INTO fact_payables (supplier_cnpj, supplier_name, invoice_ref, category, center_name,
@@ -96,7 +96,7 @@ def upsert_fact_sales(engine: Engine, df: pd.DataFrame) -> None:
     """
     tmp = "tmp_sales"
     try:
-        with engine.begin() as conn:
+        with connection_context(engine) as conn:
             df.to_sql(tmp, conn, if_exists='replace', index=False, method='multi', chunksize=10000)
             upsert_sql = f"""
             INSERT INTO fact_sales (sale_datetime, date_id, product_code, product_name, product_group,
@@ -140,7 +140,7 @@ GROUP BY date, filial, caixa
 ON CONFLICT (date, filial, caixa) DO UPDATE
   SET cash_in = EXCLUDED.cash_in, cash_out = EXCLUDED.cash_out, import_batch_id = EXCLUDED.import_batch_id, imported_at = now();
 """
-            with engine.begin() as conn:
+            with connection_context(engine) as conn:
                 conn.execute(text(promote_sql), {"import_batch_id": import_batch_id})
             logger.info("Promoted cashflow for import_batch_id=%s", import_batch_id)
             return
@@ -176,7 +176,7 @@ GROUP BY date, filial, caixa
 ON CONFLICT (date, filial, caixa) DO UPDATE
   SET cash_in = EXCLUDED.cash_in, cash_out = EXCLUDED.cash_out, import_batch_id = EXCLUDED.import_batch_id, imported_at = now();
 """
-        with engine.begin() as conn:
+        with connection_context(engine) as conn:
             conn.execute(text(promote_sql2), {"import_batch_id": import_batch_id})
         logger.info("Promotion complete for import_batch_id=%s", import_batch_id)
 
@@ -211,7 +211,7 @@ def write_ops(engine: Engine, df: Optional[pd.DataFrame], import_batch_id: str,
               payment_date = EXCLUDED.payment_date,
               imported_at = now();
             """
-            with engine.begin() as conn:
+            with connection_context(engine) as conn:
                 conn.execute(text(promote_sql), {"import_batch_id": import_batch_id})
             logger.info("Promoted payables for import_batch_id=%s", import_batch_id)
             return
@@ -266,7 +266,7 @@ def write_sales(engine: Engine, df: Optional[pd.DataFrame], import_batch_id: str
               cost_total = EXCLUDED.cost_total,
               imported_at = now();
             """
-            with engine.begin() as conn:
+            with connection_context(engine) as conn:
                 conn.execute(text(promote_sql), {"import_batch_id": import_batch_id})
             logger.info("Promoted sales for import_batch_id=%s", import_batch_id)
             return
@@ -319,7 +319,7 @@ def write_marketing(engine: Engine, df: Optional[pd.DataFrame], import_batch_id:
             ON CONFLICT (mes) DO UPDATE
               SET receita = EXCLUDED.receita, investimento = EXCLUDED.investimento, leads_gerados = EXCLUDED.leads_gerados, imported_at = now();
             """
-            with engine.begin() as conn:
+            with connection_context(engine) as conn:
                 conn.execute(text(promote_sql), {"import_batch_id": import_batch_id})
             logger.info("Promoted marketing indicators for import_batch_id=%s", import_batch_id)
             return
@@ -335,7 +335,7 @@ def write_marketing(engine: Engine, df: Optional[pd.DataFrame], import_batch_id:
         logger.info("Wrote %d rows to stg_%s", rows, table)
 
         # promoção genérica
-        with engine.begin() as conn:
+        with connection_context(engine) as conn:
             conn.execute(text("""
             INSERT INTO indicadores_marketing (mes, receita, investimento, leads_gerados, import_batch_id, imported_at)
             SELECT mes, receita, investimento, leads_gerados, import_batch_id, now()
@@ -367,7 +367,7 @@ def write_clients(engine: Engine, df: Optional[pd.DataFrame], import_batch_id: s
             ON CONFLICT (client_id) DO UPDATE
               SET client_name = EXCLUDED.client_name, client_cpf = EXCLUDED.client_cpf, client_cep = EXCLUDED.client_cep, imported_at = now();
             """
-            with engine.begin() as conn:
+            with connection_context(engine) as conn:
                 conn.execute(text(promote_sql), {"import_batch_id": import_batch_id})
             logger.info("Promoted clients for import_batch_id=%s", import_batch_id)
             return
@@ -382,7 +382,7 @@ def write_clients(engine: Engine, df: Optional[pd.DataFrame], import_batch_id: s
         logger.info("Wrote %d rows to stg_%s", rows, table)
 
         # promoção genérica
-        with engine.begin() as conn:
+        with connection_context(engine) as conn:
             conn.execute(text("""
             INSERT INTO fact_clients (client_id, client_name, client_cpf, client_cep, import_batch_id, imported_at)
             SELECT client_id, client_name, client_cpf, client_cep, import_batch_id, now()
