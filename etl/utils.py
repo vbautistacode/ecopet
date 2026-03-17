@@ -6,8 +6,10 @@ import os
 import io
 import csv
 import re
+import contextlib
 from datetime import datetime
-from typing import Tuple, Dict, List, Optional
+from sqlalchemy.engine import Engine, Connection
+from typing import Tuple, Dict, List, Optional, Any
 
 # -------------------------
 # Identificadores SQL seguros
@@ -94,3 +96,46 @@ def load_mapping(path: str, sep: str = ';') -> Tuple[list, dict]:
 # -------------------------
 def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
+
+@contextlib.contextmanager
+def connection_context(engine_or_conn: Any):
+    """
+    Context manager que aceita Engine, SQLAlchemy Connection ou raw DBAPI connection.
+    Retorna um objeto que pode ser usado para executar SQL (conn.execute(...)).
+    Garante commit/rollback quando aplicável.
+    """
+    # SQLAlchemy Engine (has begin)
+    if hasattr(engine_or_conn, "begin") and callable(getattr(engine_or_conn, "begin")):
+        with engine_or_conn.begin() as conn:
+            yield conn
+        return
+
+    # SQLAlchemy Connection (some environments expose Connection object with begin)
+    if hasattr(engine_or_conn, "connection") and callable(getattr(engine_or_conn, "connection")):
+        # treat as Engine-like
+        with engine_or_conn.connection() as conn:
+            yield conn
+        return
+
+    # Raw DBAPI connection (has cursor, commit, rollback)
+    if hasattr(engine_or_conn, "cursor") and hasattr(engine_or_conn, "commit"):
+        try:
+            yield engine_or_conn
+            try:
+                engine_or_conn.commit()
+            except Exception:
+                pass
+        except Exception:
+            try:
+                engine_or_conn.rollback()
+            except Exception:
+                pass
+        return
+
+    # Fallback: object that supports execute but no transaction control
+    if hasattr(engine_or_conn, "execute"):
+        # no transaction semantics available; yield as-is
+        yield engine_or_conn
+        return
+
+    raise ValueError("Objeto passado não é um Engine/Connection válido")

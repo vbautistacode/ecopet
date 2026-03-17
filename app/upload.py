@@ -61,9 +61,11 @@ def upsert_dataframe(engine, df: pd.DataFrame, table_name: str, key_cols: list):
     non_key_cols = [c for c in df_columns if c not in key_cols]
     set_sql = ", ".join([f'{_safe_ident(c)} = EXCLUDED.{_safe_ident(c)}' for c in non_key_cols]) if non_key_cols else ""
 
-    with engine.begin() as conn:
-        # grava temp table no schema public explicitamente
-        df.to_sql(tmp_table, conn, if_exists="replace", index=False, schema="public")
+    from etl.utils import connection_context
+
+    with connection_context(engine) as conn:
+        df.to_sql(tmp_table, conn, if_exists='replace', index=False, schema="public")
+
         if conflict_cols:
             upsert_sql = f"""
             INSERT INTO {qualified_table} ({cols_sql})
@@ -84,7 +86,11 @@ def log_upload(engine, user: str, filename: str, file_hash: str, table: str, row
     INSERT INTO public.uploads_log (uploaded_at, uploaded_by, filename, file_hash, target_table, rows_count, status, message)
     VALUES (:uploaded_at, :uploaded_by, :filename, :file_hash, :target_table, :rows_count, :status, :message);
     """)
-    with engine.begin() as conn:
+    from etl.utils import connection_context
+
+    with connection_context(engine) as conn:
+        df.to_sql(tmp_table, conn, if_exists='replace', index=False, schema="public")
+
         conn.execute(sql, {
             "uploaded_at": datetime.utcnow(),
             "uploaded_by": user,

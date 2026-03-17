@@ -82,7 +82,7 @@ def upsert_fact_payables(engine: Engine, df: pd.DataFrame) -> None:
             imported_at = now();
             DROP TABLE IF EXISTS {tmp};
             """
-        with engine.begin() as conn:
+        with connection_context(engine) as conn:
             conn.execute(text(upsert_sql))
         logger.info("Upserted payables from %s", tmp)
     except Exception:
