@@ -2,6 +2,9 @@
 import os
 import io
 import pandas as pd
+import csv
+import chardet
+from pandas.errors import EmptyDataError
 from typing import Iterator, Optional, Dict, Any
 from sqlalchemy import text
 from .utils import connection_context
@@ -10,6 +13,61 @@ import logging
 logger = logging.getLogger(__name__)
 
 __all__ = ["read_chunks", "load_csv", "load_excel", "load_to_staging"]
+
+def _detect_encoding(path, nbytes=4096):
+    with open(path, "rb") as f:
+        raw = f.read(nbytes)
+    res = chardet.detect(raw)
+    return res.get("encoding") or "utf-8"
+
+def _detect_delimiter(path, sample_lines=5):
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        sample = "".join([next(f) for _ in range(sample_lines)])
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=";,|\t,;").delimiter
+    except Exception:
+        return ";"
+
+def load_csv(path: str, sep: str = None, encoding: str = None, **kwargs) -> pd.DataFrame:
+    # detect encoding if not provided
+    tried = []
+    encodings = [encoding] if encoding else []
+    encodings += [ "utf-8", "cp1252", "latin-1" ]
+    encodings = [e for e in encodings if e]
+    if sep is None:
+        try:
+            sep = _detect_delimiter(path)
+        except Exception:
+            sep = ";"
+    last_exc = None
+    for enc in encodings:
+        try:
+            df = pd.read_csv(path, sep=sep, encoding=enc, **kwargs)
+            # if no columns, treat as empty
+            if df is None or df.shape[1] == 0:
+                raise EmptyDataError("No columns parsed")
+            return df
+        except EmptyDataError as e:
+            last_exc = e
+            # file may be empty or malformed; return empty DF to let caller handle
+            return pd.DataFrame()
+        except UnicodeDecodeError as e:
+            tried.append(enc)
+            last_exc = e
+            continue
+        except Exception as e:
+            last_exc = e
+            # try next encoding
+            continue
+    # fallback: try with errors='replace'
+    try:
+        df = pd.read_csv(path, sep=sep, encoding=encodings[-1], errors="replace", **kwargs)
+        if df is None or df.shape[1] == 0:
+            return pd.DataFrame()
+        return df
+    except Exception:
+        # raise the last meaningful exception
+        raise last_exc or RuntimeError("Failed to read CSV")
 
 def read_chunks(file_path: str, chunk_size: int = 100_000, sep: str = ",", encoding: str = "utf-8", **pd_read_csv_kwargs) -> Iterator[pd.DataFrame]:
     """
