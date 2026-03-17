@@ -23,7 +23,6 @@ except Exception:  # pragma: no cover
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-
 def get_engine() -> Engine:
     """
     Retorna um SQLAlchemy Engine usando DATABASE_URL.
@@ -53,7 +52,7 @@ def get_dict_cursor(conn: Optional[Any] = None):
     Uso:
         with get_dict_cursor() as cur:
             cur.execute(...)
-            for row in cur: ...
+            row = cur.fetchone()
     Se conn for fornecido e for psycopg.Connection, usa-o (não fecha conn).
     Se conn for None, abre uma nova conexão (psycopg) e fecha ao sair.
     Também suporta SQLAlchemy Engine/Connection como fallback.
@@ -62,7 +61,7 @@ def get_dict_cursor(conn: Optional[Any] = None):
     raw_conn = None
     cur = None
 
-    # psycopg path (preferido)
+    # tentar psycopg v3 (row_factory=dict_row)
     try:
         import psycopg
         from psycopg.rows import dict_row
@@ -72,7 +71,6 @@ def get_dict_cursor(conn: Optional[Any] = None):
 
     try:
         if psycopg is not None:
-            # se não passou conn, cria uma nova psycopg.Connection
             if conn is None:
                 raw_conn = psycopg.connect(DATABASE_URL)
                 created_conn = True
@@ -80,26 +78,25 @@ def get_dict_cursor(conn: Optional[Any] = None):
                 yield cur
                 return
 
-            # se passou um psycopg.Connection
             if isinstance(conn, psycopg.Connection):
                 cur = conn.cursor(row_factory=dict_row)
                 yield cur
                 return
     except Exception:
-        # se psycopg estiver presente mas algo falhar, vamos tentar fallback abaixo
-        if cur:
-            try:
+        # cleanup se algo falhar aqui
+        try:
+            if cur is not None:
                 cur.close()
-            except Exception:
-                pass
-        if created_conn and raw_conn:
-            try:
+        except Exception:
+            pass
+        try:
+            if created_conn and raw_conn is not None:
                 raw_conn.close()
-            except Exception:
-                pass
+        except Exception:
+            pass
         raise
 
-    # Fallback para SQLAlchemy Engine/Connection ou DBAPI genérico
+    # fallback para SQLAlchemy Engine/Connection ou DBAPI genérico
     try:
         from sqlalchemy.engine import Engine as SAEngine, Connection as SAConnection
     except Exception:
@@ -107,7 +104,6 @@ def get_dict_cursor(conn: Optional[Any] = None):
 
     try:
         if SAEngine is not None and isinstance(conn, SAEngine):
-            # abrir raw DBAPI connection a partir do engine
             raw_conn = conn.raw_connection()
             cur = raw_conn.cursor()
             yield _DictCursorWrapper(cur)
@@ -119,20 +115,12 @@ def get_dict_cursor(conn: Optional[Any] = None):
             yield _DictCursorWrapper(cur)
             return
 
-        # se recebeu um raw DBAPI connection (psycopg2, etc.)
         if conn is not None and hasattr(conn, "cursor"):
-            # tentar usar row factory se disponível (psycopg-like)
-            try:
-                cur = conn.cursor()
-                yield _DictCursorWrapper(cur)
-                return
-            except Exception:
-                # fallback para wrapper
-                cur = conn.cursor()
-                yield _DictCursorWrapper(cur)
-                return
+            cur = conn.cursor()
+            yield _DictCursorWrapper(cur)
+            return
 
-        # se chegou aqui e não abriu nada, tente abrir psycopg se disponível
+        # última tentativa: abrir psycopg se disponível
         if psycopg is not None and raw_conn is None:
             raw_conn = psycopg.connect(DATABASE_URL)
             created_conn = True
