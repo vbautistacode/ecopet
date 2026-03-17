@@ -1,4 +1,4 @@
-# etl/writer.py (refatorado)
+# etl/writer.py
 from typing import Optional, Dict, Any
 import pandas as pd
 from sqlalchemy import text
@@ -111,12 +111,12 @@ def upsert_fact_sales(engine: Engine, df: pd.DataFrame) -> None:
             imported_at = now();
             DROP TABLE IF EXISTS {tmp};
             """
-            with engine.begin() as conn:
-                conn.execute(text(upsert_sql))
-            logger.info("Upserted sales from %s", tmp)
-        except Exception:
-            logger.exception("Erro no upsert_fact_sales")
-            raise
+            # executar o upsert dentro do mesmo try
+            conn.execute(text(upsert_sql))
+        logger.info("Upserted sales from %s", tmp)
+    except Exception:
+        logger.exception("Erro no upsert_fact_sales")
+        raise
 
 # -------------------------
 # Writers públicos (contrato)
@@ -125,23 +125,21 @@ def write_finance(engine: Engine, df: Optional[pd.DataFrame], import_batch_id: s
                   file_hash: Optional[str] = None, file_name: Optional[str] = None) -> None:
     """
     Escreve dados financeiros:
-    - Se df fornecido: valida, grava em stg_cashflow_daily e promove para fact (via upsert/promotion).
-    - Se df is None: assume que dados já foram carregados em staging e promove por import_batch_id.
+    - Se df fornecido: valida, grava em stg_cashflow_daily e promove para fact.
+    - Se df is None: promove por import_batch_id.
     """
     table = "cashflow_daily"
     try:
         if df is None:
-            # modo streaming / já em staging: promover diretamente
-            # Exemplo simples: promover agregando e upsert em fact_cashflow_daily
             promote_sql = """
-            INSERT INTO fact_cashflow_daily (date, filial, caixa, cash_in, cash_out, import_batch_id, imported_at)
-            SELECT date, filial, caixa, SUM(cash_in)::numeric, SUM(cash_out)::numeric, :import_batch_id, now()
-            FROM stg_cashflow_daily
-            WHERE import_batch_id = :import_batch_id
-            GROUP BY date, filial, caixa
-            ON CONFLICT (date, filial, caixa) DO UPDATE
-              SET cash_in = EXCLUDED.cash_in, cash_out = EXCLUDED.cash_out, import_batch_id = EXCLUDED.import_batch_id, imported_at = now();
-            """
+INSERT INTO fact_cashflow_daily (date, filial, caixa, cash_in, cash_out, import_batch_id, imported_at)
+SELECT date, filial, caixa, SUM(cash_in)::numeric, SUM(cash_out)::numeric, :import_batch_id, now()
+FROM stg_cashflow_daily
+WHERE import_batch_id = :import_batch_id
+GROUP BY date, filial, caixa
+ON CONFLICT (date, filial, caixa) DO UPDATE
+  SET cash_in = EXCLUDED.cash_in, cash_out = EXCLUDED.cash_out, import_batch_id = EXCLUDED.import_batch_id, imported_at = now();
+"""
             with engine.begin() as conn:
                 conn.execute(text(promote_sql), {"import_batch_id": import_batch_id})
             logger.info("Promoted cashflow for import_batch_id=%s", import_batch_id)
@@ -168,17 +166,18 @@ def write_finance(engine: Engine, df: Optional[pd.DataFrame], import_batch_id: s
         rows = load_to_staging(df, table, upload_id=import_batch_id, import_batch_id=import_batch_id, engine=engine)
         logger.info("Wrote %d rows to stg_%s", rows, table)
 
-        # promover para fact (exemplo simples)
+        # promover para fact
+        promote_sql2 = """
+INSERT INTO fact_cashflow_daily (date, filial, caixa, cash_in, cash_out, import_batch_id, imported_at)
+SELECT date, filial, caixa, SUM(cash_in)::numeric, SUM(cash_out)::numeric, :import_batch_id, now()
+FROM stg_cashflow_daily
+WHERE import_batch_id = :import_batch_id
+GROUP BY date, filial, caixa
+ON CONFLICT (date, filial, caixa) DO UPDATE
+  SET cash_in = EXCLUDED.cash_in, cash_out = EXCLUDED.cash_out, import_batch_id = EXCLUDED.import_batch_id, imported_at = now();
+"""
         with engine.begin() as conn:
-            conn.execute(text("""
-            INSERT INTO fact_cashflow_daily (date, filial, caixa, cash_in, cash_out, import_batch_id, imported_at)
-            SELECT date, filial, caixa, SUM(cash_in)::numeric, SUM(cash_out)::numeric, :import_batch_id, now()
-            FROM stg_cashflow_daily
-            WHERE import_batch_id = :import_batch_id
-            GROUP BY date, filial, caixa
-            ON CONFLICT (date, filial, caixa) DO UPDATE
-              SET cash_in = EXCLUDED.cash_in, cash_out = EXCLUDED.cash_out, import_batch_id = EXCLUDED.import_batch_id, imported_at = now();
-            """), {"import_batch_id": import_batch_id})
+            conn.execute(text(promote_sql2), {"import_batch_id": import_batch_id})
         logger.info("Promotion complete for import_batch_id=%s", import_batch_id)
 
     except Exception as e:
