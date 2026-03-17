@@ -3,19 +3,46 @@ import uuid
 import hashlib
 import logging
 import os
+import io
 import csv
+import re
+from datetime import datetime
+from typing import Tuple, Dict, List, Optional
 
-def generate_batch_id():
+# -------------------------
+# Identificadores SQL seguros
+# -------------------------
+_identifier_re = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+def _safe_ident(name: str) -> str:
+    """
+    Valida e retorna o identificador SQL entre aspas duplas.
+    Lança ValueError se o nome for inválido.
+    """
+    if not isinstance(name, str) or not _identifier_re.match(name):
+        raise ValueError(f"Invalid identifier: {name!r}")
+    return f'"{name}"'
+
+def _qualify(schema: str, name: str) -> str:
+    """
+    Retorna schema e nome qualificados e escapados: "schema"."name"
+    """
+    return f'{_safe_ident(schema)}.{_safe_ident(name)}'
+
+# -------------------------
+# Utilitários gerais
+# -------------------------
+def generate_batch_id() -> str:
     return str(uuid.uuid4())
 
-def file_hash(path):
+def file_hash(path: str) -> str:
     h = hashlib.sha256()
     with open(path, 'rb') as f:
         for chunk in iter(lambda: f.read(8192), b''):
             h.update(chunk)
     return h.hexdigest()
 
-def setup_logger(name=__name__):
+def setup_logger(name: str = __name__):
     logger = logging.getLogger(name)
     if not logger.handlers:
         handler = logging.StreamHandler()
@@ -25,16 +52,15 @@ def setup_logger(name=__name__):
         logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
     return logger
 
-import csv
-from typing import Tuple, Dict
-import io
-
+# -------------------------
+# Load mapping (robusto a encodings)
+# -------------------------
 def load_mapping(path: str, sep: str = ';') -> Tuple[list, dict]:
     """
     Carrega mapping CSV e retorna (rows_list, mapping_dict).
     Tenta utf-8, depois latin-1; em último caso lê com errors='replace'.
     """
-    def _read_with_encoding(enc):
+    def _read_with_encoding(enc: str):
         with open(path, 'r', encoding=enc, errors='strict') as f:
             reader = csv.DictReader(f, delimiter=sep)
             rows = [r for r in reader]
@@ -54,7 +80,7 @@ def load_mapping(path: str, sep: str = ';') -> Tuple[list, dict]:
                 rows = [r for r in reader]
 
     # build mapping dict coluna_origem -> nome_destino (ignore empty)
-    mapping = {}
+    mapping: Dict[str, str] = {}
     for r in rows:
         src = (r.get('coluna_origem') or '').strip()
         tgt = (r.get('nome_destino') or '').strip()
@@ -62,3 +88,9 @@ def load_mapping(path: str, sep: str = ';') -> Tuple[list, dict]:
             mapping[src] = tgt
 
     return rows, mapping
+
+# -------------------------
+# Pequenos helpers adicionais (opcionais)
+# -------------------------
+def now_iso() -> str:
+    return datetime.utcnow().isoformat() + "Z"

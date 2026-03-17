@@ -166,20 +166,16 @@ def load_excel(file: Union[str, object], sheet_name: Union[int, str] = 0, **pd_r
 # Staging loader
 # -------------------------
 def load_to_staging(df: pd.DataFrame, table_name: str, upload_id: Union[int, str], import_batch_id: str, engine: Engine, if_exists: str = 'append', chunksize: int = 10_000) -> int:
-    """
-    Append df to staging table stg_{table_name} with upload/import metadata.
-    - engine: SQLAlchemy Engine or connection accepted by pandas.to_sql.
-    - Returns number of rows written.
-    """
     if df is None or df.empty:
         logger.info("No rows to load into stg_%s", table_name)
         return 0
     df = df.copy()
-    # ensure metadata columns exist
     df['upload_id'] = upload_id
     df['import_batch_id'] = import_batch_id
     try:
-        df.to_sql(f"stg_{table_name}", engine, if_exists=if_exists, index=False, method='multi', chunksize=chunksize)
+        # use connection context to avoid pandas/sqlalchemy paramstyle mismatch
+        with engine.begin() as conn:
+            df.to_sql(f"stg_{table_name}", conn, if_exists=if_exists, index=False, method='multi', chunksize=chunksize, schema="public")
         logger.info("Loaded %d rows into stg_%s", len(df), table_name)
         return len(df)
     except Exception:

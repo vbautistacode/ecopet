@@ -1,5 +1,5 @@
-# app/pages/upload.py
-# Página de Upload (app/pages/upload.py) com validação e upsert — fluxo operacional do usuário único.
+# app/upload.py
+# Página de Upload com validação e upsert — fluxo operacional do usuário único.
 
 import streamlit as st
 import pandas as pd
@@ -8,6 +8,7 @@ import hashlib
 from datetime import datetime
 from sqlalchemy import text
 from db.connection import get_engine
+from etl.utils import _safe_ident, _qualify
 
 st.set_page_config(page_title="Upload de Dados - EcoPet", layout="wide")
 
@@ -41,25 +42,28 @@ def validate_and_normalize(df: pd.DataFrame, expected_cols=None):
     return (len(issues) == 0), df2, issues
 
 def upsert_dataframe(engine, df: pd.DataFrame, table_name: str, key_cols: list):
-    """
-    Upsert via temp table + INSERT ... ON CONFLICT DO UPDATE.
-    - df: DataFrame pronto para persistir
-    - key_cols: lista de colunas que compõem a chave única (ex: ['mes'] ou ['mes','id'])
-    """
     tmp_table = f"tmp_{table_name}_{int(datetime.utcnow().timestamp())}"
     df_columns = [c for c in df.columns]
     if not df_columns:
         raise ValueError("DataFrame sem colunas")
-    # qualificar nomes de tabela para evitar ambiguidade
-    qualified_table = f"public.{table_name}"
-    qualified_tmp = f"public.{tmp_table}"
+
+    # sanitize column names
+    for c in df_columns:
+        _ = _safe_ident(c)
+    for k in key_cols:
+        _ = _safe_ident(k)
+
+    qualified_table = f'public."{table_name}"'
+    qualified_tmp = f'public."{tmp_table}"'
+
+    cols_sql = ", ".join([_safe_ident(c) for c in df_columns])
+    conflict_cols = ", ".join([_safe_ident(c) for c in key_cols]) if key_cols else ""
+    non_key_cols = [c for c in df_columns if c not in key_cols]
+    set_sql = ", ".join([f'{_safe_ident(c)} = EXCLUDED.{_safe_ident(c)}' for c in non_key_cols]) if non_key_cols else ""
+
     with engine.begin() as conn:
-        # grava temp table (pandas cria a tabela no schema do engine)
-        df.to_sql(tmp_table, conn, if_exists="replace", index=False)
-        cols_sql = ", ".join([f'"{c}"' for c in df_columns])
-        conflict_cols = ", ".join([f'"{c}"' for c in key_cols]) if key_cols else ""
-        # montar SET para update (exceto keys)
-        set_sql = ", ".join([f'"{c}" = EXCLUDED."{c}"' for c in df_columns if c not in key_cols])
+        # grava temp table no schema public explicitamente
+        df.to_sql(tmp_table, conn, if_exists="replace", index=False, schema="public")
         if conflict_cols:
             upsert_sql = f"""
             INSERT INTO {qualified_table} ({cols_sql})
@@ -68,13 +72,12 @@ def upsert_dataframe(engine, df: pd.DataFrame, table_name: str, key_cols: list):
             SET {set_sql};
             """
         else:
-            # sem chave de conflito definida: apenas inserir
             upsert_sql = f"""
             INSERT INTO {qualified_table} ({cols_sql})
             SELECT {cols_sql} FROM {qualified_tmp};
             """
         conn.execute(text(upsert_sql))
-        conn.execute(text(f"DROP TABLE IF EXISTS {qualified_tmp};"))
+        conn.execute(text(f'DROP TABLE IF EXISTS {qualified_tmp};'))
 
 def log_upload(engine, user: str, filename: str, file_hash: str, table: str, rows: int, status: str, message: str = None):
     sql = text("""

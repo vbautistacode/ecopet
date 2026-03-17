@@ -5,6 +5,7 @@ Gera dados fictícios para 3 meses e faz upsert por 'mes' nas tabelas alvo.
 """
 
 from datetime import datetime
+from sqlalchemy import text
 from typing import List
 import pandas as pd
 
@@ -65,34 +66,39 @@ def _bulk_upsert_dbapi(conn, table: str, df: pd.DataFrame, key_cols: List[str]):
         except Exception:
             pass
 
-
 def _upsert_via_engine(conn, table: str, df: pd.DataFrame, key_cols: List[str]):
     if df.empty:
         return
     tmp_table = f"tmp_{table}_{int(datetime.utcnow().timestamp())}"
-    df.to_sql(tmp_table, conn, if_exists="replace", index=False, schema="public")
+
+    # valida colunas
     cols = list(df.columns)
-    cols_sql = ", ".join([f'"{c}"' for c in cols])
-    conflict_cols = ", ".join([f'"{c}"' for c in key_cols]) if key_cols else ""
+    for c in cols:
+        _ = _safe_ident(c)
+    for k in key_cols:
+        _ = _safe_ident(k)
+
+    # criar tmp no schema public
+    df.to_sql(tmp_table, conn, if_exists='replace', index=False, schema="public")
+    cols_sql = ", ".join([_safe_ident(c) for c in cols])
+    conflict_cols = ", ".join([_safe_ident(c) for c in key_cols]) if key_cols else ""
     non_key_cols = [c for c in cols if c not in key_cols]
     if conflict_cols and non_key_cols:
-        set_sql = ", ".join([f'"{c}" = EXCLUDED."{c}"' for c in non_key_cols])
+        set_sql = ", ".join([f'{_safe_ident(c)} = EXCLUDED.{_safe_ident(c)}' for c in non_key_cols])
         upsert_sql = f'''
-            INSERT INTO public."{table}" ({cols_sql})
-            SELECT {cols_sql} FROM public."{tmp_table}"
+            INSERT INTO public.{_safe_ident(table)} ({cols_sql})
+            SELECT {cols_sql} FROM public.{_safe_ident(tmp_table)}
             ON CONFLICT ({conflict_cols}) DO UPDATE
             SET {set_sql};
         '''
     else:
         upsert_sql = f'''
-            INSERT INTO public."{table}" ({cols_sql})
-            SELECT {cols_sql} FROM public."{tmp_table}";
+            INSERT INTO public.{_safe_ident(table)} ({cols_sql})
+            SELECT {cols_sql} FROM public.{_safe_ident(tmp_table)};
         '''
-    # executar via engine
     with conn.begin() as c:
-        c.execute(upsert_sql)
-        c.execute(f'DROP TABLE IF EXISTS public."{tmp_table}";')
-
+        c.execute(text(upsert_sql))
+        c.execute(text(f'DROP TABLE IF EXISTS public.{_safe_ident(tmp_table)};'))
 
 def _upsert_dataframe(conn, table: str, df: pd.DataFrame, key_cols: List[str]):
     if df.empty:
