@@ -27,11 +27,12 @@ def _bulk_upsert_dbapi(conn, table: str, df: pd.DataFrame, key_cols: List[str]) 
     cols = list(df.columns)
     cols_sql = ", ".join([f'"{c}"' for c in cols])
 
-    # criar temp table com colunas TEXT
-    create_tmp_sql = f'CREATE TEMP TABLE "{tmp_table}" ({", ".join([f\'"{c}" TEXT\' for c in cols])}) ON COMMIT DROP;'
+    # construir definição das colunas de forma segura
+    cols_defs = ", ".join([f'"{c}" TEXT' for c in cols])
+    create_tmp_sql = f'CREATE TEMP TABLE "{tmp_table}" ({cols_defs}) ON COMMIT DROP;'
+    
     try:
         cur.execute(create_tmp_sql)
-
         # inserir linhas na temp table via executemany
         insert_tmp_sql = f'INSERT INTO "{tmp_table}" ({cols_sql}) VALUES ({", ".join(["%s"] * len(cols))})'
         values = []
