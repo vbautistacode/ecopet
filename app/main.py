@@ -214,63 +214,67 @@ if uploaded_files:
         except Exception:
             pass
 
-
 # -----------------------------
 # Função utilitária para leitura segura das tabelas (cacheada)
 # -----------------------------
 @st.cache_data(ttl=60)
+from sqlalchemy import text
+from db.connection import get_engine
+from etl.utils import connection_context
+
+@st.cache_data(ttl=60)
 def fetch_all_tables() -> Dict[str, pd.DataFrame]:
-    conn = get_connection()
-    try:
-        def _is_dbapi(c):
-            return hasattr(c, "cursor")
-
-        def _table_exists(c, table_name: str) -> bool:
-            # verifica information_schema para saber se a tabela existe no schema public
-            try:
-                if _is_dbapi(c):
-                    cur = c.cursor()
-                    cur.execute(
-                        "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = %s",
-                        (table_name,)
-                    )
-                    exists = cur.fetchone() is not None
-                    try:
-                        cur.close()
-                    except Exception:
-                        pass
-                    return exists
-                else:
-                    # engine path: usar read_sql para checar
-                    q = "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = %s"
-                    df = pd.read_sql(q, c, params=(table_name,))
-                    return not df.empty
-            except Exception:
-                return False
-
-        def _safe_read(table_name: str) -> pd.DataFrame:
-            # retorna DataFrame vazio se a tabela não existir ou leitura falhar
-            if not _table_exists(conn, table_name):
-                st.warning(f"Table public.{table_name} not found; returning empty DataFrame.")
-                return pd.DataFrame()
-            try:
-                # preferir read_sql_table quando conn for engine
+    """
+    Lê as tabelas públicas necessárias e retorna um dicionário de DataFrames.
+    Usa SQLAlchemy Engine/Connection via connection_context para compatibilidade com pandas.
+    """
+    engine = get_engine()
+    def _table_exists(conn, table_name: str) -> bool:
+        try:
+            # usar connection_context para garantir um objeto compatível
+            with connection_context(conn) as c:
+                q = text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = 'public' AND table_name = :table_name LIMIT 1"
+                )
+                res = c.execute(q, {"table_name": table_name})
+                # alguns drivers retornam cursor-like, outros retorn ResultProxy
                 try:
-                    return pd.read_sql_table(table_name, conn, schema="public")
+                    row = res.fetchone()
+                    return row is not None
                 except Exception:
-                    # fallback para SELECT qualificado (funciona com DB-API e engines)
-                    return pd.read_sql(f"SELECT * FROM public.{table_name}", conn)
-            except Exception as e:
-                st.warning(f"Failed to read public.{table_name}: {e}")
-                return pd.DataFrame()
+                    # fallback: convert to list
+                    rows = list(res)
+                    return len(rows) > 0
+        except Exception:
+            return False
 
-        finance = _safe_read("indicadores_financeiros")
-        dre = _safe_read("dre_financeiro")
-        vendas = _safe_read("indicadores_vendas")
-        oper = _safe_read("indicadores_operacionais")
-        mkt = _safe_read("indicadores_marketing")
-        clientes = _safe_read("indicadores_clientes")
-        cont = _safe_read("dados_contabeis")
+    def _safe_read(conn, table_name: str) -> pd.DataFrame:
+        if not _table_exists(conn, table_name):
+            st.warning(f"Table public.{table_name} not found; returning empty DataFrame.")
+            return pd.DataFrame()
+        try:
+            with connection_context(conn) as c:
+                # preferir read_sql_table quando possível (SQLAlchemy Connection)
+                try:
+                    return pd.read_sql_table(table_name, con=c, schema="public")
+                except Exception:
+                    # fallback para SELECT qualificado
+                    return pd.read_sql(f"SELECT * FROM public.{table_name}", con=c)
+        except Exception as e:
+            st.warning(f"Failed to read public.{table_name}: {e}")
+            return pd.DataFrame()
+
+    try:
+        # engine é um SQLAlchemy Engine; connection_context cuidará da compatibilidade
+        conn_like = engine
+        finance = _safe_read(conn_like, "indicadores_financeiros")
+        dre = _safe_read(conn_like, "dre_financeiro")
+        vendas = _safe_read(conn_like, "indicadores_vendas")
+        oper = _safe_read(conn_like, "indicadores_operacionais")
+        mkt = _safe_read(conn_like, "indicadores_marketing")
+        clientes = _safe_read(conn_like, "indicadores_clientes")
+        cont = _safe_read(conn_like, "dados_contabeis")
 
         return {
             "financeiros": finance,
@@ -285,8 +289,9 @@ def fetch_all_tables() -> Dict[str, pd.DataFrame]:
         st.error(f"Erro ao buscar dados do banco: {e}")
         return {k: pd.DataFrame() for k in ["financeiros","dre","vendas","operacionais","marketing","clientes","contabeis"]}
     finally:
+        # dispose do engine (libera pool). Não fecha conexões ativas usadas pelo connection_context.
         try:
-            conn.close()
+            engine.dispose()
         except Exception:
             pass
 

@@ -181,14 +181,17 @@ def apply_fallbacks(derived: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+from sqlalchemy import text
+from db.connection import get_engine
+from etl.utils import connection_context
+from derived.calc import calc_all_kpis, apply_fallbacks  # ajustar imports conforme seu projeto
 
 def main():
-    # carregar DFs a partir do DB (Postgres / Supabase)
-    conn = None
+    # obter engine (SQLAlchemy) — preferível para pandas
     try:
-        conn = get_connection()
+        engine = get_engine()
     except Exception as e:
-        print("Erro ao obter conexão com o banco:", e)
+        print("Erro ao obter engine do banco:", e)
         return
 
     tables = {
@@ -204,22 +207,19 @@ def main():
     dfs: Dict[str, pd.DataFrame] = {}
     for k, t in tables.items():
         try:
-            # Preferir leitura qualificada por schema; se get_connection() retornar um SQLAlchemy engine,
-            # pd.read_sql_table é mais apropriado.
-            try:
-                # tenta usar read_sql_table (funciona com SQLAlchemy engine)
-                dfs[k] = pd.read_sql_table(t, conn, schema="public")
-            except Exception:
-                # fallback para read_sql com SELECT qualificado (funciona com conexões DB-API e engines)
-                dfs[k] = pd.read_sql(f"SELECT * FROM public.{t}", conn)
+            with connection_context(engine) as conn:
+                try:
+                    dfs[k] = pd.read_sql_table(t, conn, schema="public")
+                except Exception:
+                    dfs[k] = pd.read_sql(f"SELECT * FROM public.{t}", conn)
             print(f"Loaded table public.{t}: {len(dfs[k])} rows")
         except Exception as exc:
             print(f"Warning: failed to read table public.{t}: {exc}")
             dfs[k] = pd.DataFrame()
 
-    # fechar conexão se for um objeto DB-API
+    # dispose engine to release resources
     try:
-        conn.close()
+        engine.dispose()
     except Exception:
         pass
 

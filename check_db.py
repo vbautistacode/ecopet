@@ -10,91 +10,66 @@ Uso esperado:
 
 from typing import List
 import pandas as pd
-from db.connection import get_connection
+import logging
+from db.connection import get_engine
+from etl.utils import connection_context, _safe_ident
 
+logger = logging.getLogger(__name__)
 
-def list_tables(conn) -> List[str]:
-    """
-    Lista tabelas visíveis no schema public (Postgres).
-    """
+def list_tables(engine) -> List[str]:
     try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-            ORDER BY table_name;
-            """
-        )
-        rows = cur.fetchall()
-        return [r[0] for r in rows]
+        with connection_context(engine) as conn:
+            res = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name;")
+            return [row[0] for row in res]
     except Exception as e:
-        print("Erro ao listar tabelas (information_schema):", e)
+        logger.exception("Erro ao listar tabelas")
         return []
 
-
-def sample_and_nulls(conn, table: str, limit: int = 5):
-    """
-    Mostra amostra, contagem total e contagem de nulos (amostra até 1000 linhas).
-    """
+def sample_and_nulls(engine, table: str, limit: int = 5):
+    # validar identificador
+    _safe_ident(table)
     try:
-        # sample rows
-        df_sample = pd.read_sql(f"SELECT * FROM public.{table} LIMIT %s", conn, params=(limit,))
-        print(f"\n== {table} (rows sample {len(df_sample)})")
-        if not df_sample.empty:
-            print(df_sample.head(limit).to_string(index=False))
-        else:
-            print("(tabela vazia ou sem permissões de leitura)")
+        with connection_context(engine) as conn:
+            df_sample = pd.read_sql(f"SELECT * FROM public.{table} LIMIT {int(limit)}", con=conn)
+            print(f"\n== {table} (rows sample {len(df_sample)})")
+            if not df_sample.empty:
+                print(df_sample.head(limit).to_string(index=False))
+            else:
+                print("(tabela vazia ou sem permissões de leitura)")
 
-        # total rows
-        total_df = pd.read_sql(f"SELECT COUNT(*) AS cnt FROM public.{table}", conn)
-        total = int(total_df.iloc[0, 0]) if not total_df.empty else 0
-        print("total rows:", total)
+            total_df = pd.read_sql(f"SELECT COUNT(*) AS cnt FROM public.{table}", con=conn)
+            total = int(total_df.iloc[0, 0]) if not total_df.empty else 0
+            print("total rows:", total)
 
-        # null counts using a safe sample (limit 1000)
-        full = pd.read_sql(f"SELECT * FROM public.{table} LIMIT %s", conn, params=(1000,))
-        print("null counts (sample up to 1000 rows):")
-        print(full.isna().sum().to_string())
+            full = pd.read_sql(f"SELECT * FROM public.{table} LIMIT 1000", con=conn)
+            print("null counts (sample up to 1000 rows):")
+            print(full.isna().sum().to_string())
     except Exception as e:
-        print(f"Erro ao ler {table}: {e}")
-
+        logger.exception("Erro ao ler %s", table)
 
 def main():
     try:
-        conn = get_connection()
+        engine = get_engine()
     except Exception as e:
-        print("Erro ao obter conexão com o banco:", e)
+        print("Erro ao obter engine:", e)
         return
 
     try:
-        tables = list_tables(conn)
+        tables = list_tables(engine)
         print("Tables:", tables)
     except Exception as e:
-        print("Erro ao listar tabelas:", e)
+        logger.exception("Erro ao listar tabelas")
         tables = []
 
-    expected = [
-        "dre_financeiro",
-        "dados_contabeis",
-        "indicadores_vendas",
-        "indicadores_financeiros",
-        "indicadores_marketing",
-        "indicadores_operacionais",
-        "indicadores_clientes",
-    ]
+    expected = [ ... ]
 
     for t in expected:
         if t in tables:
-            sample_and_nulls(conn, t)
+            sample_and_nulls(engine, t)
         else:
             print(f"\nTabela esperada ausente: {t}")
 
     try:
-        conn.close()
+        engine.dispose()
     except Exception:
         pass
-
-
-if __name__ == "__main__":
-    main()
