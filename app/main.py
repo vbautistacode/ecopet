@@ -127,36 +127,71 @@ if uploaded_files:
                 import_batch_id = f"{import_batch_root}_{idx}"
                 file_hash = _file_hash_bytes(file)
 
-                # leitura robusta: tenta utf-8, se falhar tenta latin-1
+                # leitura robusta: tenta utf-8, se falhar tenta latin-1; não propaga exceção, registra upload_error e retorna DataFrame vazio
                 name_lower = file_name.lower()
                 df_raw = None
+
                 if name_lower.endswith(".csv"):
+                    # CSV path: tentar leitura tolerante a encoding/delimitador
                     try:
-                        df_raw = load_csv(file, sep=';')  # tenta padrão (detect/utf-8)
+                        df_raw = load_csv(file, sep=";")  # tentativa padrão (detect/utf-8/cp1252/latin-1 dentro do loader)
+                        if df_raw is None:
+                            df_raw = pd.DataFrame()
                     except Exception as e:
-                        # se for erro de encoding, tenta latin-1
-                        import traceback
-                        tb = traceback.format_exc()
-                        logger.warning("load_csv falhou com utf-8 para %s: %s. Tentando latin-1", file_name, e)
+                        # primeira tentativa falhou — log e tentar explicitamente latin-1
+                        logger.warning("load_csv falhou para %s com erro: %s. Tentando latin-1", file_name, e)
                         try:
-                            # reabrir/rewind e tentar com latin-1
-                            df_raw = load_csv(file, sep=';', encoding='latin-1')
+                            df_raw = load_csv(file, sep=";", encoding="latin-1")
+                            if df_raw is None:
+                                df_raw = pd.DataFrame()
                         except Exception as e2:
+                            # leitura definitivamente falhou — registrar e seguir (não lançar)
                             logger.exception("Falha ao ler %s com latin-1: %s", file_name, e2)
-                            raise
+                            # tentar gravar upload_error se o writer estiver disponível
+                            try:
+                                from etl.writer import _write_upload_error  # função existente no pipeline
+                                try:
+                                    _write_upload_error(
+                                        engine,
+                                        import_batch_id,
+                                        file_name,
+                                        None,
+                                        "unknown",
+                                        "FILE_PROCESS_ERROR",
+                                        str(e2),
+                                    )
+                                except Exception:
+                                    logger.exception("Falha ao gravar upload_error para %s", file_name)
+                            except Exception:
+                                logger.debug("etl.writer._write_upload_error não disponível; pulando gravação de upload_error")
+                            # garantir que df_raw seja um DataFrame vazio para pular processamento a jusante
+                            df_raw = pd.DataFrame()
+
                 else:
-                    # excel
+                    # Excel path: tentar leitura e, em caso de falha, registrar upload_error e retornar DataFrame vazio
                     try:
                         df_raw = load_excel(file)
-                    except Exception:
-                        # algumas vezes excel com encoding estranho; log e rethrow
-                        logger.exception("Falha ao ler Excel %s", file_name)
-                        raise
-
-                # se leitura não produziu DataFrame, pular
-                if df_raw is None:
-                    st.sidebar.warning(f"Nenhum dado lido de {file_name}; pulando.")
-                    continue
+                        if df_raw is None:
+                            df_raw = pd.DataFrame()
+                    except Exception as e:
+                        logger.exception("Falha ao ler Excel %s: %s", file_name, e)
+                        try:
+                            from etl.writer import _write_upload_error
+                            try:
+                                _write_upload_error(
+                                    engine,
+                                    import_batch_id,
+                                    file_name,
+                                    None,
+                                    "unknown",
+                                    "FILE_PROCESS_ERROR",
+                                    str(e),
+                                )
+                            except Exception:
+                                logger.exception("Falha ao gravar upload_error para %s", file_name)
+                        except Exception:
+                            logger.debug("etl.writer._write_upload_error não disponível; pulando gravação de upload_error")
+                        df_raw = pd.DataFrame()
 
                 # Transformações
                 fin = transform_finance(df_raw)

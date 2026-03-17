@@ -22,10 +22,6 @@ def _detect_encoding(path, nbytes=4096):
     return res.get("encoding") or "utf-8"
 
 def _detect_delimiter(path: str, sample_lines: int = 5) -> str:
-    """
-    Lê os primeiros bytes em modo binário e tenta detectar delimitador com csv.Sniffer,
-    decodificando com 'utf-8' e errors='replace' para evitar UnicodeDecodeError.
-    """
     with open(path, "rb") as f:
         raw = b""
         for _ in range(sample_lines):
@@ -38,43 +34,31 @@ def _detect_delimiter(path: str, sample_lines: int = 5) -> str:
         dialect = csv.Sniffer().sniff(sample, delimiters=";,|\t")
         return dialect.delimiter
     except Exception:
-        # fallback comum
         return ";"
 
 def load_csv(path: str, sep: Optional[str] = None, encoding: Optional[str] = None, **kwargs) -> pd.DataFrame:
-    """
-    Robust CSV loader:
-      - detecta delimitador se sep não informado
-      - tenta encodings em ordem e por fim errors='replace'
-      - retorna DataFrame vazio em caso de EmptyDataError
-    """
+    if not os.path.isfile(path):
+        logger.error("Arquivo não encontrado: %s", path)
+        return pd.DataFrame()
     if sep is None:
         sep = _detect_delimiter(path)
-
     encodings = [encoding] if encoding else []
     encodings += ["utf-8", "cp1252", "latin-1"]
-    tried = []
     last_exc = None
-
     for enc in [e for e in encodings if e]:
         try:
             df = pd.read_csv(path, sep=sep, encoding=enc, **kwargs)
-            # se não houver colunas, tratar como vazio
             if df is None or df.shape[1] == 0:
                 return pd.DataFrame()
             return df
         except EmptyDataError:
             return pd.DataFrame()
         except UnicodeDecodeError as e:
-            tried.append(enc)
             last_exc = e
             continue
         except Exception as e:
             last_exc = e
-            # tentar próximo encoding
             continue
-
-    # fallback final: tentar com errors='replace' no último encoding conhecido
     try:
         fallback_enc = encodings[-1] if encodings else "utf-8"
         df = pd.read_csv(path, sep=sep, encoding=fallback_enc, errors="replace", **kwargs)
@@ -82,7 +66,6 @@ def load_csv(path: str, sep: Optional[str] = None, encoding: Optional[str] = Non
             return pd.DataFrame()
         return df
     except Exception:
-        # propagar a última exceção para o caller (que deve gravar upload_error)
         raise last_exc or RuntimeError("Failed to read CSV")
 
 def read_chunks(file_path: str, chunk_size: int = 100_000, sep: str = ",", encoding: str = "utf-8", **pd_read_csv_kwargs) -> Iterator[pd.DataFrame]:
