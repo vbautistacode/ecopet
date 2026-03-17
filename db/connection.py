@@ -9,142 +9,139 @@ DB connection helper for Supabase Postgres.
 - Raises clear, actionable errors when drivers or configuration are missing.
 """
 
-from __future__ import annotations
-
 import os
-from typing import Any, Optional, Tuple
-
-DB_TYPE = os.getenv("STREAMDASH_DB", "postgres").lower()
-if DB_TYPE != "postgres":
-    raise RuntimeError("This application is configured to use Postgres. Set STREAMDASH_DB=postgres.")
-
-# Try psycopg (psycopg3) first, then psycopg2
-_DRIVER: Optional[str] = None
-_psycopg = None
-_psycopg2 = None
-_RealDictCursor = None
-
+from typing import Any, Optional, Tuple, Iterator, ContextManager
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 try:
-    import psycopg  # type: ignore
-    _psycopg = psycopg
-    _DRIVER = "psycopg"
-except Exception:
-    try:
-        import psycopg2  # type: ignore
-        from psycopg2.extras import RealDictCursor  # type: ignore
-        _psycopg2 = psycopg2
-        _RealDictCursor = RealDictCursor
-        _DRIVER = "psycopg2"
-    except Exception:
-        raise RuntimeError(
-            "No Postgres driver found. Install one of:\n"
-            "  pip install 'psycopg[binary]'   # psycopg (psycopg3)\n"
-            "  pip install psycopg2-binary     # psycopg2\n"
-        )
+    import psycopg
+    from psycopg.rows import dict_row
+except Exception:  # pragma: no cover
+    psycopg = None
+    dict_row = None
+
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
-def _build_dsn_from_env() -> str:
-    """Construct a libpq-style DSN from individual env vars."""
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-    user = os.getenv("DB_USER", "postgres")
-    password = os.getenv("DB_PASS", "")
-    dbname = os.getenv("DB_NAME", "postgres")
-    # prefer DATABASE_URL if present; this function only used as fallback
-    return f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
-
-
-def get_connection(dsn: Optional[str] = None, connect_kwargs: Optional[dict] = None) -> Any:
+def get_engine() -> Engine:
     """
-    Return a Postgres connection object.
-
-    Priority for connection string:
-      1. explicit dsn argument
-      2. DATABASE_URL env var
-      3. constructed from DB_HOST/DB_PORT/DB_USER/DB_PASS/DB_NAME
-
-    Parameters:
-      dsn: optional connection string (overrides env)
-      connect_kwargs: optional dict passed to driver connect call
-
-    Returns:
-      A DB-API connection object (psycopg or psycopg2 connection).
+    Retorna um SQLAlchemy Engine usando DATABASE_URL.
+    Use Engine para operações com pandas (read_sql/to_sql) e para compatibilidade geral.
     """
-    connect_kwargs = connect_kwargs or {}
-    database_url = dsn or os.getenv("DATABASE_URL") or _build_dsn_from_env()
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL não configurado")
+    return create_engine(DATABASE_URL, pool_pre_ping=True)
 
-    if _DRIVER == "psycopg":
-        # psycopg3: returns a connection object; use autocommit if desired via kwargs
+
+def get_connection() -> Any:
+    """
+    Retorna uma conexão DB-API (psycopg.Connection) se psycopg estiver disponível.
+    Se psycopg não estiver instalado, retorna um SQLAlchemy Engine (compatibilidade).
+    Preferência: use get_engine() quando precisar de Engine.
+    """
+    if psycopg is None:
+        # fallback: return engine so callers that expect SQLAlchemy still work
+        return get_engine()
+    # psycopg.connect retorna psycopg.Connection
+    return psycopg.connect(DATABASE_URL)
+
+
+def get_dict_cursor(conn: Optional[Any] = None) -> Tuple[Any, Any]:
+    """
+    Retorna (conn, cursor) onde cursor produz dicionários por linha (row factory).
+    - Se conn for psycopg.Connection: cria cursor com row_factory=dict_row e retorna (conn, cursor).
+    - Se conn for None: abre nova psycopg.Connection e cursor (caller deve fechar conn).
+    - Se conn for SQLAlchemy Engine/Connection: obtém raw DBAPI connection e cria cursor dict-like.
+    Uso típico:
+        conn, cur = get_dict_cursor()
         try:
-            # psycopg.connect accepts a URL string
-            return _psycopg.connect(database_url, **connect_kwargs)
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect using psycopg: {e}") from e
-
-    if _DRIVER == "psycopg2":
-        try:
-            # psycopg2.connect accepts a dsn string or keyword args
-            # If DATABASE_URL is provided, pass it as dsn
-            if os.getenv("DATABASE_URL") or dsn:
-                return _psycopg2.connect(database_url, **connect_kwargs)
-            # otherwise pass explicit kwargs
-            host = os.getenv("DB_HOST", "localhost")
-            port = int(os.getenv("DB_PORT", "5432"))
-            user = os.getenv("DB_USER", "postgres")
-            password = os.getenv("DB_PASS", "")
-            dbname = os.getenv("DB_NAME", "postgres")
-            return _psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, **connect_kwargs)
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect using psycopg2: {e}") from e
-
-    # Should not reach here
-    raise RuntimeError("No supported Postgres driver available.")
-
-
-def get_dict_cursor(conn: Any) -> Any:
-    """
-    Return a cursor that yields rows as dictionaries.
-
-    - For psycopg3: use conn.cursor(row_factory=psycopg.rows.dict_row)
-    - For psycopg2: use cursor(cursor_factory=RealDictCursor)
-
-    Usage:
-      conn = get_connection()
-      cur = get_dict_cursor(conn)
-      cur.execute("SELECT * FROM my_table")
-      rows = cur.fetchall()
-    """
-    if _DRIVER == "psycopg":
-        try:
-            # psycopg3 row factory
-            from psycopg.rows import dict_row  # type: ignore
-            return conn.cursor(row_factory=dict_row)
-        except Exception as e:
-            raise RuntimeError(f"Failed to create dict cursor for psycopg: {e}") from e
-
-    if _DRIVER == "psycopg2":
-        if _RealDictCursor is None:
-            raise RuntimeError("RealDictCursor not available for psycopg2.")
-        try:
-            return conn.cursor(cursor_factory=_RealDictCursor)
-        except Exception as e:
-            raise RuntimeError(f"Failed to create dict cursor for psycopg2: {e}") from e
-
-    raise RuntimeError("No supported Postgres driver available for creating a dict cursor.")
-
-
-# Optional convenience: test connection (returns True/False)
-def test_connection(timeout_seconds: int = 5) -> Tuple[bool, Optional[str]]:
-    """
-    Quick health check: attempt to open and close a connection.
-    Returns (ok, error_message).
-    """
-    try:
-        conn = get_connection(connect_kwargs={"connect_timeout": timeout_seconds})
-        try:
+            cur.execute("SELECT ...")
+            for row in cur:
+                ...
+        finally:
+            cur.close()
             conn.close()
+    Retorna tupla (conn, cursor).
+    """
+    # psycopg path (recommended)
+    if psycopg is not None:
+        if conn is None:
+            conn = psycopg.connect(DATABASE_URL)
+            cur = conn.cursor(row_factory=dict_row)
+            return conn, cur
+
+        # if user passed a psycopg.Connection
+        if isinstance(conn, psycopg.Connection):
+            cur = conn.cursor(row_factory=dict_row)
+            return conn, cur
+
+    # Fallback for SQLAlchemy Engine/Connection
+    # If conn is a SQLAlchemy Engine, get raw connection and cursor
+    try:
+        from sqlalchemy.engine import Connection as SAConnection, Engine as SAEngine
+    except Exception:
+        SAConnection = SAEngine = None
+
+    if SAEngine is not None and isinstance(conn, SAEngine):
+        # get raw DBAPI connection from engine
+        raw = conn.raw_connection()
+        cur = raw.cursor()
+        # wrap rows into dicts on fetch if needed (simple wrapper)
+        return raw, _DictCursorWrapper(cur)
+
+    if SAConnection is not None and isinstance(conn, SAConnection):
+        raw = conn.connection
+        cur = raw.cursor()
+        return raw, _DictCursorWrapper(cur)
+
+    # Last resort: if conn has cursor method, return cursor (no dict row factory)
+    if conn is not None and hasattr(conn, "cursor"):
+        cur = conn.cursor()
+        # try to set row factory if psycopg-like
+        try:
+            cur.row_factory = dict_row  # may fail silently
         except Exception:
             pass
-        return True, None
-    except Exception as e:
-        return False, str(e)
+        return conn, cur
+
+    raise RuntimeError("Não foi possível criar cursor dict. Forneça psycopg or SQLAlchemy Engine.")
+
+
+class _DictCursorWrapper:
+    """
+    Wrapper simples que converte fetches do cursor DBAPI em dicts usando cursor.description.
+    Usado quando só temos um cursor DBAPI sem suporte a row_factory.
+    """
+    def __init__(self, cur):
+        self._cur = cur
+
+    def execute(self, *args, **kwargs):
+        return self._cur.execute(*args, **kwargs)
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        if row is None:
+            return None
+        return self._row_to_dict(row)
+
+    def fetchall(self):
+        rows = self._cur.fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def __iter__(self):
+        for r in self._cur:
+            yield self._row_to_dict(r)
+
+    def close(self):
+        try:
+            self._cur.close()
+        except Exception:
+            pass
+
+    @property
+    def description(self):
+        return self._cur.description
+
+    def _row_to_dict(self, row):
+        desc = self._cur.description or []
+        return {desc[i].name if hasattr(desc[i], "name") else desc[i][0]: row[i] for i in range(len(row))}
