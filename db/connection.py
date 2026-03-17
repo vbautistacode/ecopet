@@ -10,6 +10,7 @@ DB connection helper for Supabase Postgres.
 """
 
 import os
+import contextlib
 from typing import Any, Optional, Tuple, Iterator, ContextManager
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
@@ -45,67 +46,113 @@ def get_connection() -> Any:
     # psycopg.connect retorna psycopg.Connection
     return psycopg.connect(DATABASE_URL)
 
-
-def get_dict_cursor(conn: Optional[Any] = None) -> Tuple[Any, Any]:
+@contextlib.contextmanager
+def get_dict_cursor(conn: Optional[Any] = None):
     """
-    Retorna (conn, cursor) onde cursor produz dicionários por linha (row factory).
-    - Se conn for psycopg.Connection: cria cursor com row_factory=dict_row e retorna (conn, cursor).
-    - Se conn for None: abre nova psycopg.Connection e cursor (caller deve fechar conn).
-    - Se conn for SQLAlchemy Engine/Connection: obtém raw DBAPI connection e cria cursor dict-like.
-    Uso típico:
-        conn, cur = get_dict_cursor()
-        try:
-            cur.execute("SELECT ...")
-            for row in cur:
-                ...
-        finally:
-            cur.close()
-            conn.close()
-    Retorna tupla (conn, cursor).
+    Context manager que fornece um cursor que retorna dicionários por linha.
+    Uso:
+        with get_dict_cursor() as cur:
+            cur.execute(...)
+            for row in cur: ...
+    Se conn for fornecido e for psycopg.Connection, usa-o (não fecha conn).
+    Se conn for None, abre uma nova conexão (psycopg) e fecha ao sair.
+    Também suporta SQLAlchemy Engine/Connection como fallback.
     """
-    # psycopg path (recommended)
-    if psycopg is not None:
-        if conn is None:
-            conn = psycopg.connect(DATABASE_URL)
-            cur = conn.cursor(row_factory=dict_row)
-            return conn, cur
+    created_conn = False
+    raw_conn = None
+    cur = None
 
-        # if user passed a psycopg.Connection
-        if isinstance(conn, psycopg.Connection):
-            cur = conn.cursor(row_factory=dict_row)
-            return conn, cur
-
-    # Fallback for SQLAlchemy Engine/Connection
-    # If conn is a SQLAlchemy Engine, get raw connection and cursor
+    # psycopg path (preferido)
     try:
-        from sqlalchemy.engine import Connection as SAConnection, Engine as SAEngine
+        import psycopg
+        from psycopg.rows import dict_row
     except Exception:
-        SAConnection = SAEngine = None
+        psycopg = None
+        dict_row = None
 
-    if SAEngine is not None and isinstance(conn, SAEngine):
-        # get raw DBAPI connection from engine
-        raw = conn.raw_connection()
-        cur = raw.cursor()
-        # wrap rows into dicts on fetch if needed (simple wrapper)
-        return raw, _DictCursorWrapper(cur)
+    try:
+        if psycopg is not None:
+            # se não passou conn, cria uma nova psycopg.Connection
+            if conn is None:
+                raw_conn = psycopg.connect(DATABASE_URL)
+                created_conn = True
+                cur = raw_conn.cursor(row_factory=dict_row)
+                yield cur
+                return
 
-    if SAConnection is not None and isinstance(conn, SAConnection):
-        raw = conn.connection
-        cur = raw.cursor()
-        return raw, _DictCursorWrapper(cur)
+            # se passou um psycopg.Connection
+            if isinstance(conn, psycopg.Connection):
+                cur = conn.cursor(row_factory=dict_row)
+                yield cur
+                return
+    except Exception:
+        # se psycopg estiver presente mas algo falhar, vamos tentar fallback abaixo
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if created_conn and raw_conn:
+            try:
+                raw_conn.close()
+            except Exception:
+                pass
+        raise
 
-    # Last resort: if conn has cursor method, return cursor (no dict row factory)
-    if conn is not None and hasattr(conn, "cursor"):
-        cur = conn.cursor()
-        # try to set row factory if psycopg-like
+    # Fallback para SQLAlchemy Engine/Connection ou DBAPI genérico
+    try:
+        from sqlalchemy.engine import Engine as SAEngine, Connection as SAConnection
+    except Exception:
+        SAEngine = SAConnection = None
+
+    try:
+        if SAEngine is not None and isinstance(conn, SAEngine):
+            # abrir raw DBAPI connection a partir do engine
+            raw_conn = conn.raw_connection()
+            cur = raw_conn.cursor()
+            yield _DictCursorWrapper(cur)
+            return
+
+        if SAConnection is not None and isinstance(conn, SAConnection):
+            raw_conn = conn.connection
+            cur = raw_conn.cursor()
+            yield _DictCursorWrapper(cur)
+            return
+
+        # se recebeu um raw DBAPI connection (psycopg2, etc.)
+        if conn is not None and hasattr(conn, "cursor"):
+            # tentar usar row factory se disponível (psycopg-like)
+            try:
+                cur = conn.cursor()
+                yield _DictCursorWrapper(cur)
+                return
+            except Exception:
+                # fallback para wrapper
+                cur = conn.cursor()
+                yield _DictCursorWrapper(cur)
+                return
+
+        # se chegou aqui e não abriu nada, tente abrir psycopg se disponível
+        if psycopg is not None and raw_conn is None:
+            raw_conn = psycopg.connect(DATABASE_URL)
+            created_conn = True
+            cur = raw_conn.cursor(row_factory=dict_row)
+            yield cur
+            return
+
+        raise RuntimeError("Não foi possível criar cursor dict. Forneça psycopg ou SQLAlchemy Engine.")
+    finally:
+        # cleanup: fechar cursor e conexão criada internamente
         try:
-            cur.row_factory = dict_row  # may fail silently
+            if cur is not None:
+                cur.close()
         except Exception:
             pass
-        return conn, cur
-
-    raise RuntimeError("Não foi possível criar cursor dict. Forneça psycopg or SQLAlchemy Engine.")
-
+        try:
+            if created_conn and raw_conn is not None:
+                raw_conn.close()
+        except Exception:
+            pass
 
 class _DictCursorWrapper:
     """

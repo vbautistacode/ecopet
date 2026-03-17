@@ -8,138 +8,143 @@ Authentication utilities for Supabase/Postgres.
 - Exposes: get_user_by_username, create_user, hash_password, verify_password, is_admin.
 """
 
+import logging
 import os
 from typing import Optional, Dict, Any
 
-# Hashing backends
+logger = logging.getLogger(__name__)
+
+# Hashing backends: prefer passlib, fallback para werkzeug se necessário
 _HAS_PASSLIB = False
+_argon2 = None
+_bcrypt = None
+_bcrypt_sha256 = None
+_generate_password_hash = None
+_check_password_hash = None
+
 try:
     from passlib.hash import argon2, bcrypt, bcrypt_sha256  # type: ignore
     _HAS_PASSLIB = True
+    _argon2 = argon2
+    _bcrypt = bcrypt
+    _bcrypt_sha256 = bcrypt_sha256
 except Exception:
     _HAS_PASSLIB = False
     try:
         from werkzeug.security import generate_password_hash, check_password_hash  # type: ignore
+        _generate_password_hash = generate_password_hash
+        _check_password_hash = check_password_hash
     except Exception:
-        raise RuntimeError("Nenhum backend de hash disponível. Instale 'passlib' (recomendado) ou 'werkzeug'.")
+        # Não lançar na importação; registrar e deixar o app inicializar.
+        logger.error("Nenhum backend de hash disponível. Instale 'passlib' (recomendado) ou 'werkzeug'.")
 
-# Use centralized connection helper (expects psycopg2-based connection)
+# abstrações de DB
 from db.connection import get_connection, get_dict_cursor
-
-try:
-    import psycopg2  # type: ignore
-    from psycopg2.extras import RealDictCursor  # type: ignore
-except Exception:
-    # get_connection will raise a clearer error if psycopg2 is missing; keep import error explicit here
-    raise RuntimeError("psycopg2 é necessário. Instale com: pip install psycopg[binary]")
-
+from etl.utils import connection_context
 
 # -------------------------
 # User retrieval / creation
 # -------------------------
-def get_user_by_username(conn, username):
-    # usa get_dict_cursor para compatibilidade com psycopg3 e psycopg2
+def get_user_by_username(conn, username: str) -> Optional[Dict[str, Any]]:
+    """
+    Retorna o usuário como dict ou None.
+    conn pode ser psycopg.Connection, SQLAlchemy Engine/Connection ou None (get_connection será usado).
+    """
+    if conn is None:
+        conn = get_connection()
+    # get_dict_cursor é um context manager que retorna cursor com rows como dicts
     with get_dict_cursor(conn) as cur:
-        cur.execute("SELECT * FROM users WHERE username = %s", (username,))
+        cur.execute("SELECT * FROM public.users WHERE username = %s", (username,))
         return cur.fetchone()
 
 def create_user(conn, name: str, username: str, password: str, role: str = "viewer") -> None:
     """
-    Create a new user (hashes password with Argon2 if available).
+    Cria usuário. Usa connection_context para suportar Engine/Connection/psycopg.
     """
     hashed = hash_password(password)
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO public.users (name, username, password_hash, role) VALUES (%s, %s, %s, %s)",
-            (name, username, hashed, role),
+    # usar connection_context para garantir compatibilidade com pandas/sqlalchemy/psycopg
+    with connection_context(conn) as c:
+        # usar parâmetros posicionais para psycopg / SQLAlchemy text binding
+        c.execute(
+            "INSERT INTO public.users (name, username, password_hash, role) VALUES (:name, :username, :password_hash, :role)",
+            {"name": name, "username": username, "password_hash": hashed, "role": role}
         )
-    conn.commit()
-
 
 # -------------------------
 # Hashing helpers
 # -------------------------
-def hash_password(password: str) -> str:
+def hash_password(password: Optional[str]) -> str:
     pw = "" if password is None else str(password).strip()
-    if _HAS_PASSLIB:
-        return argon2.hash(pw)
-    return generate_password_hash(pw, method="pbkdf2:sha256", salt_length=16)
-
+    if _HAS_PASSLIB and _argon2 is not None:
+        return _argon2.hash(pw)
+    if _generate_password_hash is not None:
+        return _generate_password_hash(pw, method="pbkdf2:sha256", salt_length=16)
+    raise RuntimeError("Nenhum backend de hash disponível. Instale 'passlib' ou 'werkzeug'.")
 
 def _is_argon2_hash(h: str) -> bool:
     return isinstance(h, str) and h.startswith("$argon2")
 
-
 def _is_bcrypt_hash(h: str) -> bool:
     return isinstance(h, str) and (h.startswith("$2a$") or h.startswith("$2b$") or h.startswith("$2y$"))
-
 
 def _is_bcrypt_sha256_hash(h: str) -> bool:
     return isinstance(h, str) and h.startswith("$bcrypt-sha256$")
 
-
 def _rehash_to_argon2(conn, user_id: int, plain: str) -> None:
     """
-    Re-hash the plain password with Argon2 and update the DB.
-    Non-fatal: swallow exceptions to avoid blocking login.
-    Only runs if passlib is available.
+    Re-hash password to Argon2 if passlib available. Non-fatal.
     """
-    if not _HAS_PASSLIB:
+    if not _HAS_PASSLIB or _argon2 is None:
         return
     try:
-        new_hash = argon2.hash(plain)
-        with conn.cursor() as cur:
-            cur.execute("UPDATE public.users SET password_hash = %s WHERE id = %s", (new_hash, user_id))
-        conn.commit()
+        new_hash = _argon2.hash(plain)
+        with connection_context(conn) as c:
+            c.execute(
+                "UPDATE public.users SET password_hash = :hash WHERE id = :id",
+                {"hash": new_hash, "id": user_id}
+            )
     except Exception:
-        # swallow to avoid blocking login flow
-        pass
-
+        logger.exception("Falha ao re-hash para user_id=%s", user_id)
+        # swallow
 
 # -------------------------
 # Verification
 # -------------------------
 def verify_password(plain: str, hashed: str, conn=None, user_id: Optional[int] = None) -> bool:
-    """
-    Verify a plaintext password against a stored hash.
-    - Supports Argon2 (preferred), bcrypt, bcrypt_sha256 when passlib is available.
-    - If an old hash (bcrypt / bcrypt_sha256) is verified and conn+user_id are provided,
-      re-hashes the password to Argon2 and updates the DB (only if passlib is available).
-    Returns True if password matches, False otherwise.
-    """
     if not isinstance(plain, str) or not isinstance(hashed, str):
         return False
     try:
-        if _HAS_PASSLIB:
+        if _HAS_PASSLIB and _argon2 is not None:
+            # Argon2 preferred
             if _is_argon2_hash(hashed):
-                return argon2.verify(plain, hashed)
-            if _is_bcrypt_sha256_hash(hashed):
-                ok = bcrypt_sha256.verify(plain, hashed)
+                return _argon2.verify(plain, hashed)
+            if _is_bcrypt_sha256_hash(hashed) and _bcrypt_sha256 is not None:
+                ok = _bcrypt_sha256.verify(plain, hashed)
                 if ok and conn is not None and user_id is not None:
                     _rehash_to_argon2(conn, user_id, plain)
                 return ok
-            if _is_bcrypt_hash(hashed):
-                ok = bcrypt.verify(plain, hashed)
+            if _is_bcrypt_hash(hashed) and _bcrypt is not None:
+                ok = _bcrypt.verify(plain, hashed)
                 if ok and conn is not None and user_id is not None:
                     _rehash_to_argon2(conn, user_id, plain)
                 return ok
+            # fallback attempt
             try:
-                return argon2.verify(plain, hashed)
+                return _argon2.verify(plain, hashed)
             except Exception:
                 return False
         else:
-            return check_password_hash(hashed, plain)
+            if _check_password_hash is None:
+                return False
+            return _check_password_hash(hashed, plain)
     except Exception:
+        logger.exception("Erro ao verificar senha")
         return False
-
 
 # -------------------------
 # Utilities
 # -------------------------
 def is_admin(user: Optional[Dict[str, Any]]) -> bool:
-    """
-    Return True if user has role 'admin'.
-    """
     if not user:
         return False
     role = user.get("role") if isinstance(user, dict) else user["role"]
