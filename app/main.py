@@ -2,6 +2,9 @@
 
 import sys
 import os
+from sqlalchemy import text
+from db.connection import get_engine
+from etl.utils import connection_context
 from typing import Dict, Optional
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -217,11 +220,6 @@ if uploaded_files:
 # -----------------------------
 # Função utilitária para leitura segura das tabelas (cacheada)
 # -----------------------------
-@st.cache_data(ttl=60)
-from sqlalchemy import text
-from db.connection import get_engine
-from etl.utils import connection_context
-
 @st.cache_data(ttl=60)
 def fetch_all_tables() -> Dict[str, pd.DataFrame]:
     """
